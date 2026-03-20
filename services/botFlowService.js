@@ -261,6 +261,14 @@ async function handleTriage(from, text, session) {
     const symptoms = session.data.symptoms;
     const analysis = await aiService.analyseSymptoms(symptoms);
 
+    // Save AI result to session for use in booking
+    await WaSession.updateOne({ phone: from }, {
+        'data.aiSummary': analysis.summary,
+        'data.specialty': analysis.specialty,
+        'data.urgency': analysis.urgency
+    });
+
+
     await whatsappService.sendText(from,
         `🔍 *Based on your symptoms:*\n\n${analysis.summary}\n\n_Recommended next step: ${analysis.recommendation}_`
     );
@@ -269,6 +277,16 @@ async function handleTriage(from, text, session) {
     if (analysis.needsDoctor) {
         await WaSession.updateOne({ phone: from }, { step: 'DOCTOR_MATCH' });
         await handleDoctorMatch(from, text, session);
+    } else {
+        // Self-care — no doctor needed, return to main menu
+        await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU' });
+        await whatsappService.sendButtons(from,
+            `✅ Based on your symptoms, you should be fine managing this at home.\n\nIf symptoms worsen, please start a new consultation.`,
+            [
+                { id: 'consult', title: '🩺 See a doctor anyway' },
+                { id: 'history', title: '📋 My history' }
+            ]
+        );
     }
 }
 
