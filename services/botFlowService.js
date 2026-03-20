@@ -211,6 +211,29 @@ const STEPS = {
     BOOKING_COMPLETE: handleBookingComplete,
 };
 
+
+exports.processMessage = async ({ from, type, text, message }) => {
+
+    if (type === 'interactive') {
+        const interactive = message.interactive;
+        text =
+            interactive?.button_reply?.id ||
+            interactive?.list_reply?.id ||
+            text;
+    }
+
+    let session = await WaSession.findOneAndUpdate(
+        { phone: from },
+        { lastActive: new Date() },
+        { lastMessageAt: new Date() },
+        { upsert: true, new: true }
+    );
+
+    const handler = STEPS[session.step] || handleWelcome;
+    await handler(from, text, session, message);
+};
+
+
 async function handleWelcome(from, text, session) {
 
     await whatsappService.sendText(from,
