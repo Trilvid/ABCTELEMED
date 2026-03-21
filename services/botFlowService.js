@@ -325,24 +325,80 @@ async function handleMainMenu(from, text, session) {
 
 // Booking flow extensions
 async function handleDoctorSelected(from, text, session) {
-    const doctorId = text?.trim();
-    const doctor = await require('../models/Doctor').findById(doctorId);
+    try {
+        const mongoose = require('mongoose');
+        const input = text?.trim();
 
-    if (!doctor)
-        return whatsappService.sendText(from, `❌ Could not find that doctor. Please try again.`);
+        // ── Guard: if input is not a valid ObjectId, re-show the doctor list ──────
+        if (!input || !mongoose.Types.ObjectId.isValid(input)) {
+            // Re-run doctor match to show the list again
+            const specialty = session.data?.specialty || 'general_practice';
+            const doctors = await Doctor.find({
+                specialty,
+                status: 'verified',
+                isAvailableNow: true,
+                activeConsultationId: null
+            })
+                .sort({ rating: -1 })
+                .limit(3);
 
-    await WaSession.updateOne({ phone: from }, {
-        step: 'BOOKING_CONFIRM',
-        'data.selectedDoctorId': doctorId
-    });
+            if (!doctors.length) {
+                await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
+                return whatsappService.sendButtons(from,
+                    `😔 No doctors are currently available.\n\nPlease try again shortly.`,
+                    [
+                        { id: 'consult', title: '🩺 Try again' },
+                        { id: 'history', title: '📋 My history' }
+                    ]
+                );
+            }
 
-    return whatsappService.sendButtons(from,
-        `👨‍⚕️ *Dr. ${doctor.firstName} ${doctor.lastName}*\n🏥 ${doctor.specialty}\n⭐ ${doctor.rating} rating\n💰 ₦${doctor.consultationFee.toLocaleString()}\n\nConfirm your booking?`,
-        [
-            { id: 'confirm_booking', title: '✅ Confirm' },
-            { id: 'cancel_booking', title: '❌ Cancel' }
-        ]
-    );
+            const rows = doctors.map(d => ({
+                id: d._id.toString(),
+                title: `Dr. ${d.firstName} ${d.lastName}`,
+                description: `${d.specialty.replace('_', ' ')} • ⭐ ${d.rating} • ₦${d.consultationFee.toLocaleString()}`
+            }));
+
+            return whatsappService.sendList(
+                from,
+                'Please select a doctor from the list below:',
+                'View Doctors',
+                rows
+            );
+        }
+
+        // ── Valid ObjectId — find the doctor ──────────────────────────────────────
+        const doctor = await Doctor.findById(input);
+
+        if (!doctor || doctor.status !== 'verified') {
+            return whatsappService.sendText(from,
+                `❌ That doctor is no longer available. Please select another.`
+            );
+        }
+
+        await WaSession.updateOne({ phone: from }, {
+            step: 'BOOKING_CONFIRM',
+            'data.selectedDoctorId': input
+        });
+
+        return whatsappService.sendButtons(from,
+            `👨‍⚕️ *Dr. ${doctor.firstName} ${doctor.lastName}*\n🏥 ${doctor.specialty.replace('_', ' ')}\n⭐ ${doctor.rating} rating\n💰 ₦${doctor.consultationFee.toLocaleString()}\n\nConfirm your booking?`,
+            [
+                { id: 'confirm_booking', title: '✅ Confirm' },
+                { id: 'cancel_booking', title: '❌ Cancel' }
+            ]
+        );
+    } catch (err) {
+        console.error('❌ handleDoctorSelected error:', err.message);
+        await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
+        return whatsappService.sendButtons(from,
+            `❌ Something went wrong selecting that doctor. Please try again.`,
+            [
+                { id: 'consult', title: '🩺 Try again' },
+                { id: 'history', title: '📋 My history' }
+            ]
+        );
+    }
 }
 
 async function handleBookingConfirm(from, text, session) {
