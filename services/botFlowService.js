@@ -49,7 +49,6 @@ exports.processMessage = async ({ from, type, text, message }) => {
 
     let session = await WaSession.findOneAndUpdate(
         { phone: from },
-        { lastActive: new Date() },
         { lastMessageAt: new Date() },
         { upsert: true, new: true }
     );
@@ -59,12 +58,38 @@ exports.processMessage = async ({ from, type, text, message }) => {
 };
 
 
+// HandleWelcome function — checks if patient exists and routes to onboarding or main menu accordingly
 async function handleWelcome(from, text, session) {
 
-    await whatsappService.sendText(from,
-        `👋 Welcome to *AbcTeleMed*!\n\nI'm here to help you understand your symptoms and connect you with the right doctor.\n\nPlease describe what you're feeling right now:`
+    const existing = await Patient.findOne({ whatsappNumber: from });
+
+    if (existing && existing.isProfileComplete) {
+        // Returning user — update session link and go to main menu
+        await WaSession.updateOne(
+            { phone: from },
+            { step: 'MAIN_MENU', patientId: existing._id }
+        );
+        const planBadge = existing.plan === 'premium'
+            ? '⚡ Premium'
+            : existing.plan === 'basic'
+                ? '✅ Basic'
+                : '🆓 Free';
+
+        return whatsappService.sendButtons(from,
+            `Welcome back, *${existing.firstName}*! 👋\n\nPlan: *${planBadge}*\n\nHow can I help you today?`,
+            [
+                { id: 'consult', title: '🩺 See a doctor' },
+                { id: 'subscribe', title: '💳 Upgrade plan' },
+                { id: 'history', title: '📋 My history' }
+            ]
+        );
+    }
+
+    // ── New user — start onboarding ───────────────────────────────────────────
+    await WaSession.updateOne({ phone: from }, { step: 'ASK_FIRST_NAME' });
+    return whatsappService.sendText(from,
+        `👋 Welcome to *AbcTeleMed*!\n\nGet quality healthcare advice and connect with verified doctors — right here on WhatsApp.\n\nLet's set up your profile quickly.\n\n*What is your first name?*`
     );
-    await WaSession.updateOne({ phone: from }, { step: 'SYMPTOM_COLLECT' });
 }
 
 async function handleSymptoms(from, text, session) {
@@ -438,11 +463,10 @@ async function handleBookingConfirm(from, text, session) {
 
 async function handleBookingComplete(from, text, session) {
     await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
-    return whatsappService.sendButtons(from, `What would you like to do next?`, [
+    return whatsappService.sendButtons(from, ` *AbcTeleMed Main Menu*\n\n What would you like to do next?`, [
         { id: 'consult', title: '🩺 See a doctor' },
         { id: 'subscribe', title: '💳 Upgrade plan' },
-        { id: 'history', title: '📋 My history' },
-        { id: 'profile', title: '👤 My profile' }
+        { id: 'history', title: '📋 My history' }
     ]);
 }
 
