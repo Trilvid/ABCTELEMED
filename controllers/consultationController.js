@@ -149,6 +149,34 @@ exports.updateConsultation = async (req, res, next) => {
         if (!consultation)
             return res.status(404).json({ status: 'error', message: 'Consultation not found.' });
 
+        // ── When consultation is marked complete, free the doctor ─────────────
+        if (update.status === 'completed') {
+            await Doctor.findByIdAndUpdate(consultation.doctor, {
+                isAvailableNow: true,
+                activeConsultationId: null
+            });
+
+            // Notify the patient on WhatsApp that the session is closed
+            const patient = await require('../models/Patient')
+                .findById(consultation.patient).select('whatsappNumber firstName');
+
+            if (patient?.whatsappNumber) {
+                await require('../services/whatsappService').sendButtons(
+                    patient.whatsappNumber,
+                    `✅ *Your consultation has been completed.*\n\nThank you for using AbcTeleMed, ${patient.firstName}.\n\nWhat would you like to do next?`,
+                    [
+                        { id: 'consult', title: '🩺 New consultation' },
+                        { id: 'history', title: '📋 My history' }
+                    ]
+                );
+                // Return patient session to main menu
+                await require('../models/WaSession').updateOne(
+                    { phone: patient.whatsappNumber },
+                    { step: 'MAIN_MENU', data: {} }
+                );
+            }
+        }
+
         res.status(200).json({ status: 'success', data: { consultation } });
     } catch (err) {
         next(err);

@@ -51,6 +51,10 @@ app.get('/health', (req, res) => {
 app.use('/api/doctors', require('./routes/doctors'));
 app.use('/api/whatsapp', require('./routes/whatsapp'));
 app.use('/api/consultations', require('./routes/consultations'));
+app.use('/api/paystack', require('./routes/paystack'));
+
+
+
 
 // app.use('/api/auth', require('./routes/authRoutes'));
 // app.use('/api/users', require('./routes/userRoutes'));
@@ -74,10 +78,8 @@ app.get('/', (req, res) => {
         message: 'Welcome to ABC Telemed System API',
         version: '1.0.0',
         endpoints: {
-            auth: '/api/auth',
-            user: '/api/user',
-            payment: '/api/payment',
-            tax: '/api/doctors'
+            doctors: '/api/doctors',
+            users: '/api/users',
         }
     });
 });

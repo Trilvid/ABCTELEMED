@@ -49,6 +49,13 @@ const DoctorSchema = new mongoose.Schema({
     availabilitySchedule: { type: [availabilitySlotSchema], default: [] },
     consultationDuration: { type: Number, default: 15 }, // minutes per slot
     isAvailableNow: { type: Boolean, default: false }, // manual online toggle
+    isOnCall: { type: Boolean, default: false },
+    // True when doctor has explicitly started a shift and is ready for instant assignments
+    activeConsultationId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Consultation',
+        default: null
+    },
 
     // --- Pricing ---
     consultationFee: { type: Number, default: 0 }, // in Naira (kobo for Paystack: multiply x100)
