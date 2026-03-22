@@ -34,7 +34,7 @@ const doctors = [
             { degree: 'MPH', institution: 'University of Lagos', year: 2018 }
         ],
         availabilitySchedule: [
-            { day: 'monday', startTime: '08:00', endTime: '17:00' },
+            { day: 'sunday', startTime: '00:00', endTime: '17:00' },
             { day: 'wednesday', startTime: '08:00', endTime: '17:00' },
             { day: 'friday', startTime: '09:00', endTime: '15:00' }
         ]
@@ -156,7 +156,7 @@ const doctors = [
 
 const patients = [
     {
-        whatsappNumber: '2349034187388',   // ← change this to your test number
+        whatsappNumber: '234903418738834',   // ← change this to your test number
         firstName: 'Emeka',
         lastName: 'Nwosu',
         dateOfBirth: new Date('1990-05-15'),

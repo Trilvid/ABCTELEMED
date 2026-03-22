@@ -34,6 +34,7 @@ const STEPS = {
     DOCTOR_SELECTED: handleDoctorSelected,
     BOOKING_CONFIRM: handleBookingConfirm,
     BOOKING_COMPLETE: handleBookingComplete,
+    VIEW_HISTORY: handleViewHistory,
 };
 
 
@@ -259,7 +260,7 @@ async function handleAskDob(from, text, session) {
     return whatsappService.sendButtons(from, `Thanks! What is your *gender*?`, [
         { id: 'male', title: 'Male' },
         { id: 'female', title: 'Female' },
-        { id: 'prefer_not_to_say', title: 'Prefer not to say' }
+        // { id: 'prefer_not_to_say', title: 'Prefer not to say' }
     ]);
 }
 
@@ -315,9 +316,30 @@ async function handleMainMenu(from, text, session) {
     const choice = text?.toLowerCase().trim();
 
     if (choice === 'consult') {
+        const patient = await Patient.findOne({ whatsappNumber: from });
+        const now = new Date();
+        const hasActivePlan =
+            patient?.plan &&
+            patient.plan !== 'free' &&
+            patient.planExpiresAt &&
+            new Date(patient.planExpiresAt) > now;
+
+        if (!hasActivePlan) {
+            await WaSession.updateOne({ phone: from }, { step: 'SUBSCRIPTION_MENU' });
+            return whatsappService.sendButtons(from,
+                `🔒 *Subscription Required*\n\nYou need an active plan to consult a doctor.\n\nChoose a plan to get started:`,
+                [
+                    { id: 'plan_basic', title: '✅ Basic — ₦950/mo' },
+                    { id: 'plan_premium', title: '⚡ Premium — ₦2,500/mo' },
+                    { id: 'plan_cancel', title: '🔙 Back' }
+                ]
+            );
+        }
+
+        // ── Has active plan — proceed to symptom collection ──
         await WaSession.updateOne({ phone: from }, { step: 'SYMPTOM_COLLECT', data: {} });
         return whatsappService.sendText(from,
-            `🩺 *Start a Consultation*\n\nDescribe your symptoms in as much detail as you can.\n\n_Example: I have a headache, slight fever and body aches since yesterday._`
+            `*Start a Consultation*\n\nDescribe your symptoms in as much detail as you can.\n\n Example: I have a headache, slight fever and body aches since yesterday.`
         );
     }
 
@@ -327,7 +349,8 @@ async function handleMainMenu(from, text, session) {
     }
 
     if (choice === 'history') {
-        return whatsappService.sendText(from, `📋 Consultation history coming soon.`);
+        await WaSession.updateOne({ phone: from }, { step: 'VIEW_HISTORY' });
+        return handleViewHistory(from, text, session);
     }
 
     // Default — show full main menu
@@ -426,38 +449,83 @@ async function handleDoctorSelected(from, text, session) {
     }
 }
 
+
 async function handleBookingConfirm(from, text, session) {
     if (text === 'cancel_booking') {
         await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
-        return whatsappService.sendButtons(from, `Booking cancelled. What would you like to do?`, [
-            { id: 'consult', title: '🩺 See a doctor' },
-            { id: 'history', title: '📋 My history' }
-        ]);
+        return whatsappService.sendButtons(from,
+            `Booking cancelled. What would you like to do?`,
+            [
+                { id: 'consult', title: '🩺 See a doctor' },
+                { id: 'history', title: '📋 My history' },
+                { id: 'subscribe', title: '💳 Upgrade plan' }
+            ]
+        );
     }
 
-    if (text !== 'confirm_booking')
-        return whatsappService.sendButtons(from, `Please confirm or cancel your booking:`, [
-            { id: 'confirm_booking', title: '✅ Confirm' },
-            { id: 'cancel_booking', title: '❌ Cancel' }
-        ]);
+    if (text !== 'confirm_booking') {
+        return whatsappService.sendButtons(from,
+            `Please confirm or cancel your booking:`,
+            [
+                { id: 'confirm_booking', title: '✅ Confirm' },
+                { id: 'cancel_booking', title: '❌ Cancel' }
+            ]
+        );
+    }
 
-    const consultation = await require('../models/Consultation').create({
+    // ── Create the consultation record ───
+    const consultation = await Consultation.create({
         patient: session.patientId,
         doctor: session.data.selectedDoctorId,
-        scheduledAt: new Date(Date.now() + 30 * 60 * 1000), // next available: 30 mins
+        scheduledAt: new Date(Date.now() + 30 * 60 * 1000),
         symptoms: session.data.symptoms || [],
         aiSummary: session.data.aiSummary || null,
         urgency: session.data.urgency || null,
-        channel: 'whatsapp'
+        channel: 'whatsapp',
+        status: 'confirmed'
     });
 
+    // ── Mark doctor as busy ─── 
+    await Doctor.findByIdAndUpdate(session.data.selectedDoctorId, {
+        isAvailableNow: false,
+        activeConsultationId: consultation._id
+    });
+
+    // ── Fetch patient + doctor details for notifications ────
+    const [patient, doctor] = await Promise.all([
+        Patient.findById(session.patientId).select('firstName lastName whatsappNumber'),
+        Doctor.findById(session.data.selectedDoctorId).select('firstName lastName whatsappNumber phone specialty')
+    ]);
+
+    // ── Notify the DOCTOR on WhatsApp ───
+    const doctorWhatsapp = doctor.whatsappNumber || doctor.phone;
+    if (doctorWhatsapp) {
+        await whatsappService.sendText(doctorWhatsapp,
+            `🔔 *New Consultation Booked*\n\n` +
+            `👤 *Patient:* ${patient.firstName} ${patient.lastName}\n` +
+            `📱 *WhatsApp:* +${patient.whatsappNumber}\n` +
+            `🏥 *Specialty:* ${doctor.specialty.replace('_', ' ')}\n` +
+            `🤒 *Symptoms:* ${(session.data.symptoms || []).join(', ')}\n` +
+            `⚠️ *Urgency:* ${session.data.urgency || 'N/A'}\n` +
+            `📋 *Consultation ID:* ${consultation._id}\n\n` +
+            `_Please reach out to the patient on WhatsApp to begin the consultation._`
+        );
+    }
+
+    // ── Advance patient session ─── 
     await WaSession.updateOne({ phone: from }, {
         step: 'BOOKING_COMPLETE',
         'data.consultationId': consultation._id
     });
 
+    // ── Confirm to PATIENT ────
     return whatsappService.sendText(from,
-        `✅ *Booking Confirmed!*\n\nYour consultation has been booked.\n📋 Ref: *${consultation._id}*\n\nThe doctor will contact you shortly on WhatsApp.\n\n_Type anything to return to the main menu._`
+        `✅ *Booking Confirmed!*\n\n` +
+        `👨‍⚕️ *Doctor:* Dr. ${doctor.firstName} ${doctor.lastName}\n` +
+        `🏥 *Specialty:* ${doctor.specialty.replace('_', ' ')}\n` +
+        `📋 *Ref:* ${consultation._id}\n\n` +
+        `The doctor has been notified and will contact you on WhatsApp shortly.\n\n` +
+        `Type anything to return to the main menu.`
     );
 }
 
@@ -594,6 +662,95 @@ async function handlePaymentPending(from, text, session) {
         console.error('❌ Payment verify error:', err.message);
         return whatsappService.sendText(from,
             `❌ Could not verify payment. Please try again or contact support.`
+        );
+    }
+}
+
+
+async function handleViewHistory(from, text, session) {
+    try {
+        const patient = await Patient.findOne({ whatsappNumber: from });
+        if (!patient) {
+            await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU' });
+            return whatsappService.sendText(from, `❌ Could not find your profile. Please try again.`);
+        }
+
+        const consultations = await Consultation.find({ patient: patient._id })
+            .populate('doctor', 'firstName lastName specialty')
+            .sort({ scheduledAt: -1 })
+            .limit(5);
+
+        if (!consultations.length) {
+            await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU' });
+            return whatsappService.sendButtons(from,
+                `📋 *Consultation History*\n\nYou have no consultations yet.`,
+                [
+                    { id: 'consult', title: '🩺 See a doctor' },
+                    { id: 'subscribe', title: '💳 Upgrade plan' },
+                    { id: 'history', title: '📋 My history' }
+                ]
+            );
+        }
+
+        // ── Build history message ───
+        const statusEmoji = {
+            pending: '🕐',
+            confirmed: '✅',
+            ongoing: '🔄',
+            completed: '✔️',
+            cancelled: '❌',
+            no_show: '⚠️'
+        };
+
+        const lines = consultations.map((c, i) => {
+            const emoji = statusEmoji[c.status] || '📋';
+            const date = new Date(c.scheduledAt).toLocaleDateString('en-NG', {
+                day: 'numeric', month: 'short', year: 'numeric'
+            });
+            const doctor = c.doctor
+                ? `Dr. ${c.doctor.firstName} ${c.doctor.lastName}`
+                : 'Unknown Doctor';
+            const specialty = c.doctor?.specialty?.replace('_', ' ') || '';
+            const symptoms = c.symptoms?.slice(0, 2).join(', ') || 'N/A';
+
+            return (
+                `*${i + 1}. ${emoji} ${c.status.toUpperCase()}*\n` +
+                `   👨‍⚕️ ${doctor} (${specialty})\n` +
+                `   📅 ${date}\n` +
+                `   🤒 ${symptoms}` +
+                (c.diagnosis ? `\n   🔍 ${c.diagnosis}` : '') +
+                (c.prescriptions?.length
+                    ? `\n   💊 ${c.prescriptions.map(p => p.medication).join(', ')}`
+                    : '')
+            );
+        });
+
+        const summary =
+            `📋 *Your Last ${consultations.length} Consultation(s)*\n\n` +
+            lines.join('\n\n') +
+            `\n\n_Showing your ${consultations.length} most recent consultation(s)._`;
+
+        await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU' });
+
+        return whatsappService.sendButtons(from,
+            summary,
+            [
+                { id: 'consult', title: '🩺 New consultation' },
+                { id: 'subscribe', title: '💳 Upgrade plan' },
+                { id: 'history', title: '🔄 Refresh history' }
+            ]
+        );
+
+    } catch (err) {
+        console.error('❌ handleViewHistory error:', err.message);
+        await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU' });
+        return whatsappService.sendButtons(from,
+            `❌ Could not load your history right now. Please try again.`,
+            [
+                { id: 'consult', title: '🩺 See a doctor' },
+                { id: 'history', title: '📋 Try again' },
+                { id: 'subscribe', title: '💳 Upgrade plan' }
+            ]
         );
     }
 }
