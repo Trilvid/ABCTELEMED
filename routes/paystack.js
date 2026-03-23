@@ -39,7 +39,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
             // Notify patient on WhatsApp
             await whatsappService.sendButtons(phone,
-                `🎉 *Payment confirmed!*\n\nYour *${planData.name}* is now active until ${planExpiresAt.toDateString()}.\n\n${plan === 'premium' ? '⚡ You now have instant doctor assignment!' : '✅ You can now access all Basic features.'}`,
+                `🎉 *Payment confirmed!*\n\nYour *${planData.name}* is now active until ${planExpiresAt.toDateString()}.\n\n${plan === 'premium' ? '⚡ You now have instant doctor assignment!' : 'You can now access all Basic features.'}`,
                 [
                     { id: 'consult', title: '🩺 See a doctor' },
                     { id: 'history', title: '📋 My history' }

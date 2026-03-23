@@ -27,7 +27,8 @@ exports.initiateSubscriptionPayment = async ({ email, plan, patientId, phone }) 
     const response = await axios.post(
         `${BASE_URL}/transaction/initialize`,
         {
-            email,
+            // email, // no email is used here so we will stick to numbers
+            phone,
             amount: planData.amount,
             metadata: {
                 patientId: patientId.toString(),
