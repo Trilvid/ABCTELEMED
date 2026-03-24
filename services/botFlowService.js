@@ -759,7 +759,7 @@ async function handleSubscriptionMenu(from, text, session) {
     const { PLANS, initiateSubscriptionPayment } = require('./paystackService');
     const choice = text?.toLowerCase().trim();
 
-    const validChoices = ['plan_basic_monthly', 'plan_basic_annual', 'plan_premium_monthly', 'plan_premium_annual', 'plan_cancel'];
+    const validChoices = ['basic_monthly', 'basic_annual', 'premium_monthly', 'premium_annual', 'cancel'];
 
     // Show plan list if no valid choice yet
     if (!validChoices.includes(choice)) {
@@ -767,30 +767,56 @@ async function handleSubscriptionMenu(from, text, session) {
             `Subscribe to access doctor consultations.\n\nChoose a plan below:`,
             'View Plans',
             [
+                // {
+                //     id: "basic_monthly",
+                //     title: "Basic - ₦750",
+                //     description: "Monthly plan"
+                // },
+                // {
+                //     id: "basic_annual",
+                //     title: "Basic Annual",
+                //     description: "₦6000/year"
+                // },
+                // {
+                //     id: "premium_monthly",
+                //     title: "Premium - ₦1500",
+                //     description: "Priority access"
+                // },
+                // {
+                //     id: "premium_annual",
+                //     title: "Premium Annual",
+                //     description: "₦14400/year"
+                // },
+                // {
+                //     id: "cancel",
+                //     title: "Back",
+                //     description: "Return to menu"
+                // }
+                
                 {
-                    id: 'plan_basic_monthly',
-                    title: 'Basic - N750/month',
-                    description: PLANS.basic_monthly.perks
+                    id: "basic_monthly",
+                    title: "Basic - ₦750",
+                    description: "Monthly plan"
                 },
                 {
-                    id: 'plan_basic_annual',
-                    title: 'Basic - N500/mo annually',
-                    description: 'Save 33% — billed as N6,000/year'
+                    id: "basic_annual",
+                    title: "Basic Annual",
+                    description: "₦6000/year"
                 },
                 {
-                    id: 'plan_premium_monthly',
-                    title: 'Premium - N1500/month',
-                    description: PLANS.premium_monthly.perks
+                    id: "premium_monthly",
+                    title: "Premium - ₦1500",
+                    description: "Priority access"
                 },
                 {
-                    id: 'plan_premium_annual',
-                    title: 'Premium - N1200/mo annually',
-                    description: 'Save 20% — billed as N14,400/year'
+                    id: "premium_annual",
+                    title: "Premium Annual",
+                    description: "₦14400/year"
                 },
                 {
-                    id: 'plan_cancel',
-                    title: 'Back to menu',
-                    description: 'Return to main menu'
+                    id: "cancel",
+                    title: "Back",
+                    description: "Return to menu"
                 }
             ]
         );
@@ -803,10 +829,10 @@ async function handleSubscriptionMenu(from, text, session) {
 
     // Map choice to plan key
     const planMap = {
-        'plan_basic_monthly': 'basic_monthly',
-        'plan_basic_annual': 'basic_annual',
-        'plan_premium_monthly': 'premium_monthly',
-        'plan_premium_annual': 'premium_annual'
+        'basic_monthly': 'basic_monthly',
+        'basic_annual': 'basic_annual',
+        'premium_monthly': 'premium_monthly',
+        'premium_annual': 'premium_annual'
     };
     const plan = planMap[choice];
     const planData = PLANS[plan];
