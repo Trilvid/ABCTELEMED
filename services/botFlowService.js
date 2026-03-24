@@ -329,9 +329,9 @@ async function handleMainMenu(from, text, session) {
             return whatsappService.sendButtons(from,
                 `🔒 *Subscription Required*\n\nYou need an active plan to consult a doctor.\n\nChoose a plan to get started:`,
                 [
-                    { id: 'plan_basic', title: '✅ Basic — ₦950/mo' },
-                    { id: 'plan_premium', title: '⚡ Premium — ₦2,500/mo' },
-                    { id: 'plan_cancel', title: '🔙 Back' }
+                    { id: 'plan_basic', title: 'Basic N950/month' },
+                    { id: 'plan_premium', title: 'Premium N2500/mo' },
+                    { id: 'plan_cancel', title: 'Back to menu' }
                 ]
             );
         }
@@ -649,6 +649,7 @@ async function handleBookingConfirm(from, text, session) {
 }
 
 
+
 async function handleBookingComplete(from, text, session) {
     await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
     return whatsappService.sendButtons(from, ` *AbcTeleMed Main Menu*\n\n What would you like to do next?`, [
@@ -672,12 +673,12 @@ async function handleSubscriptionMenu(from, text, session) {
             [
                 {
                     id: 'plan_basic',
-                    title: 'Basic — ₦950/month',
+                    title: 'Basic -  N750/month',
                     description: PLANS.basic.perks
                 },
                 {
                     id: 'plan_premium',
-                    title: 'Premium — ₦2,500/month',
+                    title: 'Premium -  N1,500/month',
                     description: PLANS.premium.perks
                 },
                 {

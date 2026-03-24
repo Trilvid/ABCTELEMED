@@ -10,7 +10,7 @@ const Consultation = require('./models/Consultation');
 
 const doctors = [
     {
-        firstName: 'Ezinne',
+        firstName: 'Agnes',
         lastName: 'Obi',
         email: 'ezinne@abctelemed.com',
         phone: '2348108241437',
@@ -35,7 +35,7 @@ const doctors = [
         ],
         availabilitySchedule: [
             { day: 'sunday', startTime: '00:00', endTime: '17:00' },
-            { day: 'wednesday', startTime: '08:00', endTime: '17:00' },
+            { day: 'monday', startTime: '08:00', endTime: '21:00' },
             { day: 'friday', startTime: '09:00', endTime: '15:00' }
         ]
     },
@@ -156,8 +156,8 @@ const doctors = [
 
 const patients = [
     {
-        whatsappNumber: '234903418738834',   // ← change this to your test number
-        firstName: 'Emeka',
+        whatsappNumber: '2349034187388',   // ← change this to your test number
+        firstName: 'Divine',
         lastName: 'Nwosu',
         dateOfBirth: new Date('1990-05-15'),
         gender: 'male',
@@ -165,7 +165,7 @@ const patients = [
         bloodGroup: 'O+',
         genotype: 'AA',
         isProfileComplete: true,
-        plan: 'free',
+        plan: 'basic',
         totalConsultations: 2,
         medicalHistory: [
             { condition: 'Hypertension', diagnosedYear: 2020, onMedication: true, notes: 'On Amlodipine 5mg' }
@@ -175,11 +175,11 @@ const patients = [
         ]
     },
     {
-        whatsappNumber: '2349034187328',   // ← change this to another test number
-        firstName: 'Fatima',
-        lastName: 'Abdullahi',
+        whatsappNumber: '2348035450616',   // ← change this to another test number
+        firstName: 'Kenneth',
+        lastName: 'Nkuma-Udah',
         dateOfBirth: new Date('1995-11-22'),
-        gender: 'female',
+        gender: 'male',
         'location.state': 'Abuja',
         bloodGroup: 'A+',
         genotype: 'AS',
