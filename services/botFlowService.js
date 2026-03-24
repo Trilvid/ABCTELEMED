@@ -329,9 +329,26 @@ async function handleMainMenu(from, text, session) {
             return whatsappService.sendButtons(from,
                 `🔒 *Subscription Required*\n\nYou need an active plan to consult a doctor.\n\nChoose a plan to get started:`,
                 [
-                    { id: 'plan_basic', title: 'Basic N950/month' },
-                    { id: 'plan_premium', title: 'Premium N2500/mo' },
-                    { id: 'plan_cancel', title: 'Back to menu' }
+                    {
+                        id: 'plan_basic_monthly',
+                        title: 'Basic - N750/month',
+                        description: 'Unlimited symptom checks and referrals'
+                    },
+                    {
+                        id: 'plan_basic_annual',
+                        title: 'Basic - N500/mo annually',
+                        description: 'Save 33% billed as N6,000/year'
+                    },
+                    {
+                        id: 'plan_premium_monthly',
+                        title: 'Premium - N1500/month',
+                        description: 'Instant doctor assignment'
+                    },
+                    {
+                        id: 'plan_premium_annual',
+                        title: 'Premium - N1200/mo annually',
+                        description: 'Save 20% billed as N14,400/year'
+                    }
                 ]
             );
         }
@@ -661,25 +678,114 @@ async function handleBookingComplete(from, text, session) {
 
 // ── subscription handler functions ────
 
+// async function handleSubscriptionMenu(from, text, session) {
+//     const { PLANS, initiateSubscriptionPayment } = require('./paystackService');
+//     const choice = text?.toLowerCase().trim();
+
+//     // If they just arrived at this step, show the plan list
+//     if (!['plan_basic', 'plan_premium', 'plan_cancel'].includes(choice)) {
+//         return whatsappService.sendList(from,
+//             `💳 *Upgrade Your Plan*\n\nChoose a subscription to unlock more features:`,
+//             'View Plans',
+//             [
+//                 {
+//                     id: 'plan_basic',
+//                     title: 'Basic -  N750/month',
+//                     description: PLANS.basic.perks
+//                 },
+//                 {
+//                     id: 'plan_premium',
+//                     title: 'Premium -  N1,500/month',
+//                     description: PLANS.premium.perks
+//                 },
+//                 {
+//                     id: 'plan_cancel',
+//                     title: 'Back to menu',
+//                     description: 'Return to main menu'
+//                 }
+//             ]
+//         );
+//     }
+
+//     if (choice === 'plan_cancel') {
+//         await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU' });
+//         return handleMainMenu(from, '', session);
+//     }
+
+//     const plan = choice === 'plan_basic' ? 'basic' : 'premium';
+//     const patient = await Patient.findOne({ whatsappNumber: from });
+
+//     if (patient?.plan === plan) {
+//         await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU' });
+//         return whatsappService.sendButtons(from,
+//             `ℹYou are already on the *${plan}* plan.\n\nYour plan expires: ${patient.planExpiresAt?.toDateString() || 'N/A'}`,
+//             [
+//                 { id: 'consult', title: '🩺 See a doctor' },
+//                 { id: 'history', title: '📋 My history' }
+//             ]
+//         );
+//     }
+
+//     try {
+//         // Generate Paystack payment link
+//         const paymentData = await initiateSubscriptionPayment({
+//             // email: patient.email || `${from}@abctelemed.com`, // fallback if no email yet
+//             plan,
+//             patientId: patient._id,
+//             phone: from
+//         });
+
+//         await WaSession.updateOne({ phone: from }, {
+//             step: 'PAYMENT_PENDING',
+//             'data.pendingPlan': plan,
+//             'data.paymentReference': paymentData.reference
+//         });
+
+//         const planData = PLANS[plan];
+//         return whatsappService.sendText(from,
+//             `💳 *Complete Your Payment*\n\n*Plan:* ${planData.name}\n*Amount:* ${planData.label}\n*Perks:* ${planData.perks}\n\n👇 Tap the link below to pay securely:\n\n${paymentData.authorization_url}\n\n_After payment, your plan will be activated automatically. Type *check* to verify your payment status._`
+//         );
+//     } catch (err) {
+//         console.error('❌ Paystack init error:', err.message);
+//         await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU' });
+//         return whatsappService.sendText(from,
+//             `❌ We couldn't generate a payment link right now. Please try again shortly.`
+//         );
+//     }
+// }
+
+
 async function handleSubscriptionMenu(from, text, session) {
     const { PLANS, initiateSubscriptionPayment } = require('./paystackService');
     const choice = text?.toLowerCase().trim();
 
-    // If they just arrived at this step, show the plan list
-    if (!['plan_basic', 'plan_premium', 'plan_cancel'].includes(choice)) {
+    const validChoices = ['plan_basic_monthly', 'plan_basic_annual', 'plan_premium_monthly', 'plan_premium_annual', 'plan_cancel'];
+
+    // Show plan list if no valid choice yet
+    if (!validChoices.includes(choice)) {
         return whatsappService.sendList(from,
-            `💳 *Upgrade Your Plan*\n\nChoose a subscription to unlock more features:`,
+            `Subscribe to access doctor consultations.\n\nChoose a plan below:`,
             'View Plans',
             [
                 {
-                    id: 'plan_basic',
-                    title: 'Basic -  N750/month',
-                    description: PLANS.basic.perks
+                    id: 'plan_basic_monthly',
+                    title: 'Basic - N750/month',
+                    description: PLANS.basic_monthly.perks
                 },
                 {
-                    id: 'plan_premium',
-                    title: 'Premium -  N1,500/month',
-                    description: PLANS.premium.perks
+                    id: 'plan_basic_annual',
+                    title: 'Basic - N500/mo annually',
+                    description: 'Save 33% — billed as N6,000/year'
+                },
+                {
+                    id: 'plan_premium_monthly',
+                    title: 'Premium - N1500/month',
+                    description: PLANS.premium_monthly.perks
+                },
+                {
+                    id: 'plan_premium_annual',
+                    title: 'Premium - N1200/mo annually',
+                    description: 'Save 20% — billed as N14,400/year'
                 },
                 {
                     id: 'plan_cancel',
@@ -695,24 +801,33 @@ async function handleSubscriptionMenu(from, text, session) {
         return handleMainMenu(from, '', session);
     }
 
-    const plan = choice === 'plan_basic' ? 'basic' : 'premium';
-    const patient = await Patient.findOne({ whatsappNumber: from });
+    // Map choice to plan key
+    const planMap = {
+        'plan_basic_monthly': 'basic_monthly',
+        'plan_basic_annual': 'basic_annual',
+        'plan_premium_monthly': 'premium_monthly',
+        'plan_premium_annual': 'premium_annual'
+    };
+    const plan = planMap[choice];
+    const planData = PLANS[plan];
 
-    if (patient?.plan === plan) {
+    const patient = await Patient.findOne({ whatsappNumber: from });
+    if (!patient) {
         await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU' });
-        return whatsappService.sendButtons(from,
-            `ℹYou are already on the *${plan}* plan.\n\nYour plan expires: ${patient.planExpiresAt?.toDateString() || 'N/A'}`,
-            [
-                { id: 'consult', title: '🩺 See a doctor' },
-                { id: 'history', title: '📋 My history' }
-            ]
+        return whatsappService.sendText(from, `Could not find your profile. Please try again.`);
+    }
+
+    // Check if already on same billing cycle
+    if (patient?.plan === plan && patient?.planExpiresAt && new Date(patient.planExpiresAt) > new Date()) {
+        await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU' });
+        return whatsappService.sendText(from,
+            `You are already on the ${planData.name} plan.\n\nExpires: ${new Date(patient.planExpiresAt).toDateString()}\n\nType anything to return to the menu.`
         );
     }
 
     try {
-        // Generate Paystack payment link
         const paymentData = await initiateSubscriptionPayment({
-            // email: patient.email || `${from}@abctelemed.com`, // fallback if no email yet
+            email: patient.email,
             plan,
             patientId: patient._id,
             phone: from
@@ -724,18 +839,23 @@ async function handleSubscriptionMenu(from, text, session) {
             'data.paymentReference': paymentData.reference
         });
 
-        const planData = PLANS[plan];
         return whatsappService.sendText(from,
-            `💳 *Complete Your Payment*\n\n*Plan:* ${planData.name}\n*Amount:* ${planData.label}\n*Perks:* ${planData.perks}\n\n👇 Tap the link below to pay securely:\n\n${paymentData.authorization_url}\n\n_After payment, your plan will be activated automatically. Type *check* to verify your payment status._`
+            `*${planData.name}*\n` +
+            `Amount: ${planData.label}\n` +
+            `Perks: ${planData.perks}\n\n` +
+            `Tap the link below to pay securely:\n\n` +
+            `${paymentData.authorization_url}\n\n` +
+            `After payment, type *check* to activate your plan.`
         );
     } catch (err) {
-        console.error('❌ Paystack init error:', err.message);
+        console.error('Paystack init error:', err.message);
         await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU' });
         return whatsappService.sendText(from,
-            `❌ We couldn't generate a payment link right now. Please try again shortly.`
+            `Could not generate a payment link right now.\n\nPlease try again shortly or contact support.\n\nType anything to return to the menu.`
         );
     }
 }
+
 
 async function handlePaymentPending(from, text, session) {
     const { verifyPayment, PLANS } = require('./paystackService');
@@ -743,7 +863,7 @@ async function handlePaymentPending(from, text, session) {
 
     if (input !== 'check') {
         return whatsappService.sendText(from,
-            `⏳ Waiting for payment confirmation.\n\nOnce you've paid, type *check* to verify your payment.\n\nOr tap the link again if you haven't paid yet.`
+            `Waiting for payment confirmation.\n\nOnce you have paid, type *check* to verify.\n\nOr tap the payment link again if you have not paid yet.`
         );
     }
 
@@ -759,7 +879,10 @@ async function handlePaymentPending(from, text, session) {
         if (payment.status === 'success') {
             const plan = session.data.pendingPlan;
             const planData = PLANS[plan];
-            const planExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+            // Annual plans expire in 365 days, monthly in 30 days
+            const daysToAdd = planData.billing === 'annual' ? 365 : 30;
+            const planExpiresAt = new Date(Date.now() + daysToAdd * 24 * 60 * 60 * 1000);
 
             await Patient.findOneAndUpdate(
                 { whatsappNumber: from },
@@ -767,22 +890,24 @@ async function handlePaymentPending(from, text, session) {
             );
             await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
 
+            const isPremium = plan.startsWith('premium');
             return whatsappService.sendButtons(from,
-                `🎉 *Payment confirmed!*\n\n*${planData.name}* is now active until ${planExpiresAt.toDateString()}.\n\n${plan === 'premium' ? '⚡ You now have instant doctor assignment!' : '✅ Basic features unlocked!'}`,
+                `Payment confirmed!\n\n${planData.name} is now active until ${planExpiresAt.toDateString()}.\n\n${isPremium ? 'You now have instant doctor assignment.' : 'You can now access doctor consultations.'}`,
                 [
-                    { id: 'consult', title: '🩺 See a doctor' },
-                    { id: 'history', title: '📋 My history' }
+                    { id: 'consult', title: 'See a doctor' },
+                    { id: 'history', title: 'My history' },
+                    { id: 'subscribe', title: 'My plan' }
                 ]
             );
         } else {
             return whatsappService.sendText(from,
-                `⏳ Payment not confirmed yet. Please complete the payment and type *check* again.`
+                `Payment not confirmed yet.\n\nPlease complete the payment and type *check* again.`
             );
         }
     } catch (err) {
-        console.error('❌ Payment verify error:', err.message);
+        console.error('Payment verify error:', err.message);
         return whatsappService.sendText(from,
-            `❌ Could not verify payment. Please try again or contact support.`
+            `Could not verify payment. Please try again or contact support.`
         );
     }
 }
