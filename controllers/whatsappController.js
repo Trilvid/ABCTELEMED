@@ -21,11 +21,14 @@ exports.handleMessage = async (req, res) => {
     const message = entry?.messages?.[0];
     if (!message) return;
 
-    await processMessage({
-        from: message.from,
-        type: message.type,
-        text: message?.text?.body || '',
-        message: message
-    });
-
+    try {
+        await processMessage({
+            from: message.from,
+            type: message.type,
+            text: message?.text?.body || '',
+            message
+        });
+    } catch (error) {
+        console.error('WhatsApp webhook processing error:', error.response?.data || error.message);
+    }
 };

@@ -144,7 +144,7 @@ exports.updateConsultation = async (req, res, next) => {
         const consultation = await Consultation.findByIdAndUpdate(
             req.params.id,
             update,
-            { new: true, runValidators: true }
+            { returnDocument: 'after', runValidators: true }
         );
         if (!consultation)
             return res.status(404).json({ status: 'error', message: 'Consultation not found.' });

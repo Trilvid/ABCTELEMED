@@ -7,7 +7,7 @@ const setStep = (phone, step, extraData = {}) =>
     WaSession.findOneAndUpdate(
         { phone },
         { step, ...extraData },
-        { new: true }
+        { returnDocument: 'after' }
     );
 
 // ─── STEP 1: First message ever from this number ──────────────────────────────
@@ -129,7 +129,7 @@ exports.collectState = async (from, text, session) => {
             registrationStep: 'complete',
             isProfileComplete: true
         },
-        { upsert: true, new: true, runValidators: true }
+        { upsert: true, returnDocument: 'after', runValidators: true }
     );
 
     await setStep(from, 'MAIN_MENU', { patientId: patient._id, data: {} });

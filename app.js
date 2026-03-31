@@ -7,6 +7,8 @@ const morgan = require('morgan');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
+const jsonParser = express.json({ limit: '100mb' });
+const urlEncodedParser = express.urlencoded({ extended: true, limit: '100mb' });
 
 // Security middleware
 app.use(helmet());
@@ -14,8 +16,15 @@ app.use(helmet());
 app.use(cors());
 
 // Body parser middleware
-app.use(express.json({ limit: '100mb' }));
-app.use(express.urlencoded({ extended: true, limit: '100mb' }));
+app.use('/api/paystack/webhook', express.raw({ type: 'application/json' }));
+app.use((req, res, next) => {
+    if (req.originalUrl === '/api/paystack/webhook') {
+        return next();
+    }
+
+    return jsonParser(req, res, next);
+});
+app.use(urlEncodedParser);
 
 // Sanitize data
 // app.use(mongoSanitize());
@@ -52,23 +61,6 @@ app.use('/api/doctors', require('./routes/doctors'));
 app.use('/api/whatsapp', require('./routes/whatsapp'));
 app.use('/api/consultations', require('./routes/consultations'));
 app.use('/api/paystack', require('./routes/paystack'));
-
-
-
-
-// app.use('/api/auth', require('./routes/authRoutes'));
-// app.use('/api/users', require('./routes/userRoutes'));
-// app.use('/api/payment', require('./routes/paymentRoutes'));
-// app.use('/api/tax', require('./routes/taxRoutes'));
-// app.use('/api/notifications', require('./routes/notificationRoutes'));
-// app.use('/api/admin', require('./routes/Adminrevenueroutes'));
-
-// // Additional route for frontend compatibility
-// const authController = require('./controllers/authController');
-// const { protect } = require('./middleware/auth');
-// app.get('/api/users/getData', protect, authController.getMe);
-// const taxVerifyRoutes = require('./routes/scanTaxRoute');
-// app.use('/api/verify', taxVerifyRoutes);
 
 
 // Welcome route

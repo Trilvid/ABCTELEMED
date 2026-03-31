@@ -135,7 +135,7 @@ exports.updateProfile = async (req, res, next) => {
         forbidden.forEach(f => delete req.body[f]);
 
         const doctor = await Doctor.findByIdAndUpdate(req.params.id, req.body, {
-            new: true, runValidators: true
+            returnDocument: 'after', runValidators: true
         });
         if (!doctor) return res.status(404).json({ status: 'error', message: 'Doctor not found.' });
 
@@ -158,7 +158,7 @@ exports.updateAvailability = async (req, res, next) => {
         if (availabilitySchedule) update.availabilitySchedule = availabilitySchedule;
         if (consultationDuration) update.consultationDuration = consultationDuration;
 
-        const doctor = await Doctor.findByIdAndUpdate(req.params.id, update, { new: true });
+        const doctor = await Doctor.findByIdAndUpdate(req.params.id, update, { returnDocument: 'after' });
         if (!doctor) return res.status(404).json({ status: 'error', message: 'Doctor not found.' });
 
         res.status(200).json({
@@ -185,7 +185,7 @@ exports.verifyDoctor = async (req, res, next) => {
                 ? { status: 'verified', licenseVerified: true, verifiedAt: new Date() }
                 : { status: 'rejected', rejectionReason: rejectionReason || 'Not specified' };
 
-        const doctor = await Doctor.findByIdAndUpdate(req.params.id, update, { new: true });
+        const doctor = await Doctor.findByIdAndUpdate(req.params.id, update, { returnDocument: 'after' });
         if (!doctor) return res.status(404).json({ status: 'error', message: 'Doctor not found.' });
 
         res.status(200).json({

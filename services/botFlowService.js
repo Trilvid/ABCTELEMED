@@ -11,6 +11,20 @@ const onboarding = require('./onboardingService');
 const { collectFirstName, collectLastName, collectDob, collectGender, collectState } = require('./onboardingService');
 const mainMenu = require('./mainMenuService');
 
+const getPlanBadge = (plan) => {
+    if (plan?.startsWith('premium')) return 'Premium';
+    if (plan?.startsWith('basic')) return 'Basic';
+    return 'Free';
+};
+
+const subscriptionRows = (plans) => ([
+    { id: 'basic_monthly', title: 'Basic Monthly', description: plans.basic_monthly.label },
+    { id: 'basic_annual', title: 'Basic Annual', description: plans.basic_annual.label },
+    { id: 'premium_monthly', title: 'Premium Monthly', description: plans.premium_monthly.label },
+    { id: 'premium_annual', title: 'Premium Annual', description: plans.premium_annual.label },
+    { id: 'cancel', title: 'Back', description: 'Return to menu' }
+]);
+
 
 
 const STEPS = {
@@ -51,7 +65,7 @@ exports.processMessage = async ({ from, type, text, message }) => {
     let session = await WaSession.findOneAndUpdate(
         { phone: from },
         { lastMessageAt: new Date() },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
     );
 
     const handler = STEPS[session.step] || handleWelcome;
@@ -69,6 +83,15 @@ async function handleWelcome(from, text, session) {
         await WaSession.updateOne(
             { phone: from },
             { step: 'MAIN_MENU', patientId: existing._id }
+        );
+        const normalizedPlanBadge = getPlanBadge(existing.plan);
+        return whatsappService.sendButtons(from,
+            `Welcome back, *${existing.firstName}*! 👋\n\nPlan: *${normalizedPlanBadge}*\n\nHow can I help you today?`,
+            [
+                { id: 'consult', title: 'See a doctor' },
+                { id: 'subscribe', title: 'Upgrade plan' },
+                { id: 'history', title: 'My history' }
+            ]
         );
         const planBadge = existing.plan === 'premium'
             ? '⚡ Premium'
@@ -448,7 +471,7 @@ async function handleAskState(from, text, session) {
             'location.state': state,
             isProfileComplete: true
         },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
     );
 
     await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', patientId: patient._id, data: {} });
@@ -477,6 +500,12 @@ async function handleMainMenu(from, text, session) {
 
         if (!hasActivePlan) {
             await WaSession.updateOne({ phone: from }, { step: 'SUBSCRIPTION_MENU' });
+            return whatsappService.sendList(
+                from,
+                `Subscription required.\n\nChoose a plan to get started:`,
+                'View Plans',
+                subscriptionRows(paystackService.PLANS)
+            );
             return whatsappService.sendButtons(from,
                 `🔒 *Subscription Required*\n\nYou need an active plan to consult a doctor.\n\nChoose a plan to get started:`,
                 [
@@ -523,6 +552,15 @@ async function handleMainMenu(from, text, session) {
 
     // Default — show full main menu
     const patient = await Patient.findOne({ whatsappNumber: from });
+    const normalizedPlanBadge = getPlanBadge(patient?.plan);
+    return whatsappService.sendButtons(from,
+        `🏥 *AbcTeleMed Main Menu*\n\nPlan: *${normalizedPlanBadge}*\n\nHow can we help you today?`,
+        [
+            { id: 'consult', title: 'See a doctor' },
+            { id: 'subscribe', title: 'Upgrade plan' },
+            { id: 'history', title: 'My history' }
+        ]
+    );
     const planBadge = patient?.plan === 'premium'
         ? '⚡ Premium'
         : patient?.plan === 'basic'
@@ -942,6 +980,12 @@ async function handleSubscriptionMenu(from, text, session) {
 
     // Show plan list if no valid choice yet
     if (!validChoices.includes(choice)) {
+        return whatsappService.sendList(
+            from,
+            `Subscribe to access doctor consultations.\n\nChoose a plan below:`,
+            'View Plans',
+            subscriptionRows(PLANS)
+        );
         return whatsappService.sendList(from,
             `Subscribe to access doctor consultations.\n\nChoose a plan below:`,
             'View Plans',
@@ -999,6 +1043,11 @@ async function handleSubscriptionMenu(from, text, session) {
                 }
             ]
         );
+    }
+
+    if (choice === 'cancel') {
+        await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU' });
+        return handleMainMenu(from, '', session);
     }
 
     if (choice === 'plan_cancel') {

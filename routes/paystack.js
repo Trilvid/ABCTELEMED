@@ -1,25 +1,30 @@
 const express = require('express');
-const router = express.Router();
 const crypto = require('crypto');
 const Patient = require('../models/Patient');
 const WaSession = require('../models/WaSession');
 const whatsappService = require('../services/whatsappService');
 const { PLANS } = require('../services/paystackService');
 
-// POST /api/paystack/webhook — Paystack server-to-server confirmation
-router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+const router = express.Router();
+
+router.post('/webhook', async (req, res) => {
     try {
-        // Verify the request is genuinely from Paystack
+        const rawBody = Buffer.isBuffer(req.body)
+            ? req.body
+            : Buffer.from(JSON.stringify(req.body || {}));
+
         const hash = crypto
             .createHmac('sha512', process.env.PAYSTACK_SECRET_KEY)
-            .update(req.body)
+            .update(rawBody)
             .digest('hex');
 
         if (hash !== req.headers['x-paystack-signature']) {
             return res.sendStatus(401);
         }
 
-        const event = JSON.parse(req.body);
+        const event = Buffer.isBuffer(req.body)
+            ? JSON.parse(req.body.toString('utf8'))
+            : req.body;
 
         if (event.event === 'charge.success') {
             const { metadata, status } = event.data;
@@ -29,29 +34,38 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
             const { patientId, phone, plan } = metadata;
             const planData = PLANS[plan];
+            if (!planData) {
+                return res.sendStatus(200);
+            }
 
-            // Upgrade patient plan — 30 days from now
-            const planExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+            const daysToAdd = planData.billing === 'annual' ? 365 : 30;
+            const planExpiresAt = new Date(Date.now() + daysToAdd * 24 * 60 * 60 * 1000);
+
             await Patient.findByIdAndUpdate(patientId, { plan, planExpiresAt });
-
-            // Update session so bot knows plan immediately
             await WaSession.updateOne({ phone }, { step: 'MAIN_MENU' });
 
-            // Notify patient on WhatsApp
-            await whatsappService.sendButtons(phone,
-                `🎉 *Payment confirmed!*\n\nYour *${planData.name}* is now active until ${planExpiresAt.toDateString()}.\n\n${plan === 'premium' ? '⚡ You now have instant doctor assignment!' : 'You can now access all Basic features.'}`,
+            await whatsappService.sendButtons(
+                phone,
+                `Payment confirmed!\n\nYour *${planData.name}* is now active until ${planExpiresAt.toDateString()}.\n\n${plan.startsWith('premium') ? 'You now have instant doctor assignment.' : 'You can now access doctor consultations.'}`,
                 [
-                    { id: 'consult', title: '🩺 See a doctor' },
-                    { id: 'history', title: '📋 My history' }
+                    { id: 'consult', title: 'See a doctor' },
+                    { id: 'history', title: 'My history' }
                 ]
             );
         }
 
-        res.sendStatus(200);
+        return res.sendStatus(200);
     } catch (err) {
-        console.error('❌ Paystack webhook error:', err.message);
-        res.sendStatus(200); // Always ACK Paystack
+        console.error('Paystack webhook error:', err.message);
+        return res.sendStatus(200);
     }
+});
+
+router.get('/webhook/callback', (req, res) => {
+    res.status(200).json({
+        success: true,
+        message: 'Payment callback received. Return to WhatsApp and type "check" to confirm your subscription.'
+    });
 });
 
 module.exports = router;
