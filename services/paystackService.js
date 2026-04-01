@@ -40,6 +40,7 @@ exports.initiateSubscriptionPayment = async ({ email, plan, patientId, phone }) 
     const planData = PLANS[plan];
     if (!planData) throw new Error(`Invalid plan: ${plan}`);
     if (!PAYSTACK_SECRET) throw new Error('Missing PAYSTACK_SECRET_KEY');
+    if (!process.env.APP_URL) throw new Error('Missing APP_URL');
 
     const safeEmail = email && email.includes('@') && !email.includes('@abctelemed.com')
         ? email
@@ -77,6 +78,7 @@ exports.initiateSubscriptionPayment = async ({ email, plan, patientId, phone }) 
 };
 
 exports.verifyPayment = async (reference) => {
+    if (!PAYSTACK_SECRET) throw new Error('Missing PAYSTACK_SECRET_KEY');
     const response = await axios.get(
         `${BASE_URL}/transaction/verify/${reference}`,
         {
@@ -85,4 +87,43 @@ exports.verifyPayment = async (reference) => {
     );
 
     return response.data.data;
+};
+
+// this initiates ConsultationPayment function
+exports.initiateConsultationPayment = async ({ email, amount, patientId, doctorId, consultationRef, phone }) => {
+    if (!PAYSTACK_SECRET) throw new Error('Missing PAYSTACK_SECRET_KEY');
+    if (!process.env.APP_URL) throw new Error('Missing APP_URL');
+    const safeEmail = email && email.includes('@') && !email.includes('@abctelemed.com')
+        ? email
+        : `patient${phone}@abctelemed.ng`;
+
+    console.log(`💳 Initiating consultation payment — amount: ${amount} | email: ${safeEmail}`);
+
+    try {
+        const response = await axios.post(
+            `${BASE_URL}/transaction/initialize`,
+            {
+                email: safeEmail,
+                amount: amount * 100, // convert Naira to kobo
+                metadata: {
+                    patientId: patientId.toString(),
+                    doctorId: doctorId.toString(),
+                    consultationRef: consultationRef.toString(),
+                    phone,
+                    type: 'consultation'
+                },
+                callback_url: `${process.env.APP_URL}/api/paystack/webhook/callback`
+            },
+            {
+                headers: {
+                    Authorization: `Bearer ${PAYSTACK_SECRET}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+        return response.data.data;
+    } catch (err) {
+        console.error('❌ Paystack consultation init error:', JSON.stringify(err.response?.data || err.message));
+        throw err;
+    }
 };
