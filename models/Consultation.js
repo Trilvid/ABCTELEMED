@@ -18,6 +18,13 @@ const prescriptionSchema = new mongoose.Schema({
     notes: { type: String, default: null }
 }, { _id: false });
 
+// NEW — review left by patient after consultation
+const reviewSchema = new mongoose.Schema({
+    rating: { type: Number, required: true, min: 1, max: 5 },
+    comment: { type: String, default: null, maxlength: 500 },
+    reviewedAt: { type: Date, default: Date.now }
+}, { _id: false });
+
 const ConsultationSchema = new mongoose.Schema({
     // --- Parties ---
     patient: {
@@ -76,7 +83,9 @@ const ConsultationSchema = new mongoose.Schema({
         type: String,
         enum: ['whatsapp', 'web', 'mobile'],
         default: 'whatsapp'
-    }
+    },
+
+    review: { type: reviewSchema, default: null }
 
 }, { timestamps: true });
 

@@ -99,6 +99,20 @@ exports.verifyPayment = async (transactionId) => {
     return response.data.data;
 };
 
+// Verify by tx_ref (what we store in session at initiation time)
+exports.verifyByTxRef = async (tx_ref) => {
+    if (!FLUTTERWAVE_SECRET) throw new Error('Missing FLUTTERWAVE_SECRET_KEY');
+    const response = await axios.get(
+        `${BASE_URL}/transactions?tx_ref=${encodeURIComponent(tx_ref)}`,
+        {
+            headers: { Authorization: `Bearer ${FLUTTERWAVE_SECRET}` }
+        }
+    );
+    const transactions = response.data.data;
+    if (!transactions || transactions.length === 0) return null;
+    return transactions[0]; // most recent match
+};
+
 exports.initiateConsultationPayment = async ({ email, amount, patientId, doctorId, consultationRef, phone }) => {
     if (!FLUTTERWAVE_SECRET) throw new Error('Missing FLUTTERWAVE_SECRET_KEY');
     if (!process.env.APP_URL) throw new Error('Missing APP_URL');

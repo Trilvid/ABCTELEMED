@@ -1,6 +1,7 @@
 const Consultation = require('../models/Consultation');
 const Doctor = require('../models/Doctor');
 const Patient = require('../models/Patient');
+const { endConsultation } = require('../services/consultationEndService');
 
 // ─── POST /api/consultations ──────────────────────────────────────────────────
 exports.createConsultation = async (req, res, next) => {
@@ -212,5 +213,31 @@ exports.cancelConsultation = async (req, res, next) => {
         });
     } catch (err) {
         next(err);
+    }
+};
+
+exports.endConsultation = async (req, res) => {
+    try {
+        const { doctorNotes, diagnosis, prescriptions, followUpDate } = req.body;
+
+        const consultation = await endConsultation(req.params.id, {
+            doctorNotes,
+            diagnosis,
+            prescriptions,
+            followUpDate: followUpDate ? new Date(followUpDate) : undefined
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: 'Consultation ended. Patient has been sent a review prompt.',
+            data: consultation
+        });
+
+    } catch (err) {
+        console.error('❌ End consultation error:', err.message);
+        const statusCode = err.message === 'Consultation not found' ? 404
+            : err.message === 'Consultation is already completed' ? 400
+                : 500;
+        return res.status(statusCode).json({ success: false, message: err.message });
     }
 };

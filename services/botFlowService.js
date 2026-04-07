@@ -38,6 +38,7 @@ const STEPS = {
     ASK_LAST_NAME: handleAskLastName,
     ASK_DOB: handleAskDob,
     ASK_GENDER: handleAskGender,
+    ASK_COUNTRY: handleAskCountry,
     ASK_STATE: handleAskState,
     MAIN_MENU: handleMainMenu,
 
@@ -51,6 +52,10 @@ const STEPS = {
     VIEW_HISTORY: handleViewHistory,
 
     CONSULTATION_PAYMENT: handleConsultationPayment,
+
+    REVIEW_DOCTOR: handleReviewDoctor,
+    REVIEW_COMMENT: handleReviewComment,
+
 };
 
 
@@ -336,11 +341,23 @@ async function handleAskGender(from, text, session) {
             { id: 'prefer_not_to_say', title: 'Prefer not to say' }
         ]);
 
-    await WaSession.updateOne({ phone: from }, { step: 'ASK_STATE', 'data.gender': gender });
+    await WaSession.updateOne({ phone: from }, { step: 'ASK_COUNTRY', 'data.gender': gender });
     return whatsappService.sendText(from,
-        `Almost done! 🎉\n\nWhich *state* are you based in?\n_Example: Lagos, Abuja, Rivers, Enugu_`
+        `Almost done! \n\nWhich *country* are you based in?\n_Example: Nigeria, United Kingdom, United States_`
     );
 }
+
+async function handleAskCountry(from, text, session) {
+    const country = text?.trim();
+    if (!country || country.length < 2)
+        return whatsappService.sendText(from, `Please enter your country. _Example: Nigeria_`);
+
+    await WaSession.updateOne({ phone: from }, { step: 'ASK_STATE', 'data.country': country });
+    return whatsappService.sendText(from,
+        `Got it! Which *state or region* are you in?\n\n_Example: Lagos, Abuja, Rivers, Enugu_`
+    );
+}
+
 
 async function handleAskState(from, text, session) {
     const state = text?.trim();
@@ -356,6 +373,7 @@ async function handleAskState(from, text, session) {
             lastName: d.lastName,
             dateOfBirth: d.dob,
             gender: d.gender,
+            'location.country': d.country || 'Nigeria',
             'location.state': state,
             isProfileComplete: true
         },
@@ -366,9 +384,9 @@ async function handleAskState(from, text, session) {
     return whatsappService.sendButtons(from,
         `✅ *Profile complete, ${patient.firstName}!*\n\nHere's what you can do:`,
         [
-            { id: 'consult', title: '🩺 See a doctor' },
-            { id: 'history', title: '📋 My history' },
-            { id: 'profile', title: '👤 My profile' }
+            { id: 'consult', title: 'See a doctor' },
+            { id: 'history', title: 'My history' },
+            { id: 'subscribe', title: 'Upgrade plan' }
         ]
     );
 }
@@ -394,31 +412,7 @@ async function handleMainMenu(from, text, session) {
                 'View Plans',
                 subscriptionRows(flutterwaveService.PLANS)
             );
-            return whatsappService.sendButtons(from,
-                `🔒 *Subscription Required*\n\nYou need an active plan to consult a doctor.\n\nChoose a plan to get started:`,
-                [
-                    {
-                        id: 'plan_basic_monthly',
-                        title: 'Basic - N750/mo',
-                        description: 'Unlimited symptom checks and referrals'
-                    },
-                    {
-                        id: 'plan_basic_annual',
-                        title: 'Basic - N500/mo annually',
-                        description: 'Save 33% billed as N6,000/year'
-                    },
-                    {
-                        id: 'plan_premium_monthly',
-                        title: 'Premium - N1500/month',
-                        description: 'Instant doctor assignment'
-                    },
-                    {
-                        id: 'plan_premium_annual',
-                        title: 'Premium - N1200/mo annually',
-                        description: 'Save 20% billed as N14,400/year'
-                    }
-                ]
-            );
+
         }
 
         // ── Has active plan — proceed to symptom collection ──
@@ -529,113 +523,6 @@ async function handleDoctorSelected(from, text, session) {
     }
 }
 
-// async function handleBookingConfirm(from, text, session) {
-//     if (text === 'cancel_booking') {
-//         await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
-//         return whatsappService.sendButtons(from,
-//             `Booking cancelled. What would you like to do?`,
-//             [
-//                 { id: 'consult', title: 'See a doctor' },
-//                 { id: 'history', title: 'My history' },
-//                 { id: 'subscribe', title: 'Upgrade plan' }
-//             ]
-//         );
-//     }
-
-//     if (text !== 'confirm_booking') {
-//         return whatsappService.sendButtons(from,
-//             `Please confirm or cancel your booking:`,
-//             [
-//                 { id: 'confirm_booking', title: 'Confirm' },
-//                 { id: 'cancel_booking', title: 'Cancel' }
-//             ]
-//         );
-//     }
-
-//     // ── Resolve patientId ─────────────────────────────────────────────────────
-//     let patientId = session.patientId;
-//     if (!patientId) {
-//         const p = await Patient.findOne({ whatsappNumber: from });
-//         patientId = p?._id;
-//         console.log(`⚠️ patientId fallback: ${patientId}`);
-//     }
-
-//     if (!patientId) {
-//         await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
-//         return whatsappService.sendButtons(from,
-//             `Could not find your profile. Please try again.`,
-//             [{ id: 'consult', title: 'Try again' }]
-//         );
-//     }
-
-//     console.log(`✅ Creating consultation — patient: ${patientId} | doctor: ${session.data.selectedDoctorId}`);
-
-//     const consultation = await Consultation.create({
-//         patient: patientId,
-//         doctor: session.data.selectedDoctorId,
-//         scheduledAt: new Date(Date.now() + 30 * 60 * 1000),
-//         symptoms: session.data.symptoms || [],
-//         aiSummary: session.data.aiSummary || null,
-//         urgency: session.data.urgency || null,
-//         channel: 'whatsapp',
-//         status: 'confirmed'
-//     });
-
-//     console.log(`✅ Consultation created: ${consultation._id}`);
-
-//     await Doctor.findByIdAndUpdate(session.data.selectedDoctorId, {
-//         isAvailableNow: false,
-//         activeConsultationId: consultation._id
-//     });
-
-//     const [patient, doctor] = await Promise.all([
-//         Patient.findById(patientId).select('firstName lastName whatsappNumber'),
-//         Doctor.findById(session.data.selectedDoctorId).select('firstName lastName whatsappNumber phone specialty')
-//     ]);
-
-//     console.log(`👤 Patient: ${patient?.firstName} | 📱 ${patient?.whatsappNumber}`);
-//     console.log(`👨‍⚕️ Doctor: ${doctor?.firstName} | WA: ${doctor?.whatsappNumber} | Phone: ${doctor?.phone}`);
-
-//     // ── Notify doctor ─────────────────────────────────────────────────────────
-//     const rawNumber = doctor?.whatsappNumber || doctor?.phone || '';
-//     const doctorNumber = rawNumber.replace(/[\s\-\+]/g, '');
-//     console.log(`📤 Doctor notification to: ${doctorNumber}`);
-
-//     if (doctorNumber) {
-//         try {
-//             await whatsappService.sendText(doctorNumber,
-//                 `New Consultation Booked\n\n` +
-//                 `Patient: ${patient.firstName} ${patient.lastName}\n` +
-//                 `WhatsApp: +${patient.whatsappNumber}\n` +
-//                 `Specialty: ${doctor.specialty.replace('_', ' ')}\n` +
-//                 `Symptoms: ${(session.data.symptoms || []).join(', ')}\n` +
-//                 `Urgency: ${session.data.urgency || 'N/A'}\n` +
-//                 `Ref: ${consultation._id}\n\n` +
-//                 `Please contact the patient on WhatsApp to begin the consultation.`
-//             );
-//             console.log(`✅ Doctor notification sent to ${doctorNumber}`);
-//         } catch (e) {
-//             console.error(`❌ Doctor notification failed: ${e.message}`);
-//             console.error(`   Response:`, e.response?.data);
-//         }
-//     } else {
-//         console.warn(`⚠️ No number for doctor ${doctor?._id}`);
-//     }
-
-//     await WaSession.updateOne({ phone: from }, {
-//         step: 'BOOKING_COMPLETE',
-//         'data.consultationId': consultation._id
-//     });
-
-//     return whatsappService.sendText(from,
-//         `Booking Confirmed!\n\n` +
-//         `Dr. ${doctor.firstName} ${doctor.lastName}\n` +
-//         `Specialty: ${doctor.specialty.replace('_', ' ')}\n` +
-//         `Ref: ${consultation._id}\n\n` +
-//         `The doctor has been notified and will contact you on WhatsApp shortly.\n\nType anything to return to the menu.`
-//     );
-// }
-
 
 //  handleBookingConfirm
 async function handleBookingConfirm(from, text, session) {
@@ -699,6 +586,8 @@ async function handleBookingConfirm(from, text, session) {
         await WaSession.updateOne({ phone: from }, {
             step: 'CONSULTATION_PAYMENT',
             'data.paymentReference': paymentData.tx_ref,
+            'data.paymentLink': paymentData.link,
+            'data.paymentInitiatedAt': new Date(),
             'data.consultationFee': doctor.consultationFee
         });
 
@@ -710,7 +599,8 @@ async function handleBookingConfirm(from, text, session) {
             `Tap the link below to pay securely:\n\n` +
             `${paymentData.link}\n\n` +
             `After payment your doctor will be notified immediately.\n` +
-            `Type *check* to confirm your payment.`
+            `Type *check* to confirm your payment.\n` +
+            `If your link expires, type *retry* for a new one.`
         );
     } catch (err) {
         console.error('❌ Consultation payment init error:', err.message);
@@ -801,7 +691,9 @@ async function handleSubscriptionMenu(from, text, session) {
         await WaSession.updateOne({ phone: from }, {
             step: 'PAYMENT_PENDING',
             'data.pendingPlan': plan,
-            'data.paymentReference': paymentData.tx_ref
+            'data.paymentReference': paymentData.tx_ref,
+            'data.paymentLink': paymentData.link,
+            'data.paymentInitiatedAt': new Date()
         });
 
         return whatsappService.sendText(from,
@@ -810,7 +702,8 @@ async function handleSubscriptionMenu(from, text, session) {
             `Perks: ${planData.perks}\n\n` +
             `Tap the link below to pay securely:\n\n` +
             `${paymentData.link}\n\n` +
-            `After payment, type *check* to activate your plan.`
+            `After payment, type *check* to activate your plan.\n` +
+            `If your link expires, type *retry* for a new one.`
         );
     } catch (err) {
         console.error('Flutterwave init error:', err.message);
@@ -823,33 +716,84 @@ async function handleSubscriptionMenu(from, text, session) {
 
 
 async function handlePaymentPending(from, text, session) {
-    const { PLANS } = require('./flutterwaveService');
+    const { PLANS, initiateSubscriptionPayment, verifyByTxRef } = require('./flutterwaveService');
     const input = text?.toLowerCase().trim();
+    const LINK_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
 
-    if (input !== 'check') {
-        return whatsappService.sendText(from,
-            `Waiting for payment confirmation.\n\nOnce you have paid, type *check* to verify.\n\nOr tap the payment link again if you have not paid yet.`
-        );
-    }
+    const initiatedAt = session.data?.paymentInitiatedAt;
+    const isStale = initiatedAt && (Date.now() - new Date(initiatedAt).getTime()) > LINK_EXPIRY_MS;
 
-    try {
+    // ── Retry: user asked or link is stale ───
+    if (input === 'retry' || isStale) {
         const plan = session.data?.pendingPlan;
         if (!plan) {
             await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU' });
             return handleMainMenu(from, '', session);
         }
-
-        // Flutterwave webhook already updates the DB — verify via DB state
+        const planData = PLANS[plan];
         const patient = await Patient.findOne({ whatsappNumber: from });
-        const isActivated = patient?.plan === plan && patient?.planExpiresAt && new Date(patient.planExpiresAt) > new Date();
+        if (!patient) {
+            await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU' });
+            return whatsappService.sendText(from, `Could not find your profile. Type anything to return to the menu.`);
+        }
+        try {
+            const paymentData = await initiateSubscriptionPayment({
+                email: patient.email,
+                plan,
+                patientId: patient._id,
+                phone: from
+            });
+            await WaSession.updateOne({ phone: from }, {
+                'data.paymentReference': paymentData.tx_ref,
+                'data.paymentLink': paymentData.link,
+                'data.paymentInitiatedAt': new Date()
+            });
+            return whatsappService.sendText(from,
+                `Here is a fresh payment link:\n\n` +
+                `*${planData.name}* — ${planData.label}\n\n` +
+                `${paymentData.link}\n\n` +
+                `After payment, type *check* to activate your plan.\n` +
+                `If your link expires again, type *retry*.`
+            );
+        } catch (err) {
+            console.error('Flutterwave subscription retry error:', err.message);
+            return whatsappService.sendText(from, `Could not generate a new link right now. Please try again shortly.`);
+        }
+    }
 
-        if (isActivated) {
+    // ── Not "check" — remind user ───
+    if (input !== 'check') {
+        const existingLink = session.data?.paymentLink;
+        return whatsappService.sendText(from,
+            `Waiting for payment confirmation.\n\n` +
+            (existingLink ? `Your payment link:\n${existingLink}\n\n` : '') +
+            `Once you have paid, type *check* to verify.\n` +
+            `If your link expired, type *retry* to get a new one.`
+        );
+    }
+
+    // ── Check payment status ───
+    try {
+        const tx_ref = session.data?.paymentReference;
+        const plan = session.data?.pendingPlan;
+        if (!tx_ref || !plan) {
+            await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU' });
+            return handleMainMenu(from, '', session);
+        }
+
+        const transaction = await verifyByTxRef(tx_ref);
+
+        if (transaction?.status === 'successful') {
             const planData = PLANS[plan];
+            const daysToAdd = planData.billing === 'annual' ? 365 : 30;
+            const planExpiresAt = new Date(Date.now() + daysToAdd * 24 * 60 * 60 * 1000);
+
+            await Patient.findOneAndUpdate({ whatsappNumber: from }, { plan, planExpiresAt });
             await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
 
             const isPremium = plan.startsWith('premium');
             return whatsappService.sendButtons(from,
-                `Payment confirmed!\n\n${planData.name} is now active until ${new Date(patient.planExpiresAt).toDateString()}.\n\n${isPremium ? 'You now have instant doctor assignment.' : 'You can now access doctor consultations.'}`,
+                `Payment confirmed!\n\n${planData.name} is now active until ${planExpiresAt.toDateString()}.\n\n${isPremium ? 'You now have instant doctor assignment.' : 'You can now access doctor consultations.'}`,
                 [
                     { id: 'consult', title: 'See a doctor' },
                     { id: 'history', title: 'My history' },
@@ -858,7 +802,7 @@ async function handlePaymentPending(from, text, session) {
             );
         } else {
             return whatsappService.sendText(from,
-                `Payment not confirmed yet.\n\nPlease complete the payment and type *check* again.`
+                `Payment not confirmed yet.\n\nPlease complete the payment and type *check* again.\n\nIf your link expired, type *retry* to get a new one.`
             );
         }
     } catch (err) {
@@ -959,30 +903,76 @@ async function handleViewHistory(from, text, session) {
 }
 
 async function handleConsultationPayment(from, text, session) {
+    const { initiateConsultationPayment, verifyByTxRef } = require('./flutterwaveService');
     const input = text?.toLowerCase().trim();
+    const LINK_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
 
+    const initiatedAt = session.data?.paymentInitiatedAt;
+    const isStale = initiatedAt && (Date.now() - new Date(initiatedAt).getTime()) > LINK_EXPIRY_MS;
+
+    // ── Retry: user asked or link is stale ───
+    if (input === 'retry' || isStale) {
+        const doctorId = session.data?.selectedDoctorId;
+        const consultationFee = session.data?.consultationFee;
+        if (!doctorId || !consultationFee) {
+            await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
+            return whatsappService.sendText(from, `Session expired. Please start again from the main menu.\n\nType anything to return.`);
+        }
+        const patient = await Patient.findOne({ whatsappNumber: from });
+        if (!patient) {
+            await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
+            return whatsappService.sendText(from, `Could not find your profile. Type anything to return to the menu.`);
+        }
+        try {
+            const paymentData = await initiateConsultationPayment({
+                email: patient.email,
+                amount: consultationFee,
+                patientId: patient._id,
+                doctorId,
+                consultationRef: `${patient._id}-${Date.now()}`,
+                phone: from
+            });
+            await WaSession.updateOne({ phone: from }, {
+                'data.paymentReference': paymentData.tx_ref,
+                'data.paymentLink': paymentData.link,
+                'data.paymentInitiatedAt': new Date()
+            });
+            return whatsappService.sendText(from,
+                `Here is a fresh payment link:\n\n` +
+                `Consultation fee: N${consultationFee.toLocaleString()}\n\n` +
+                `${paymentData.link}\n\n` +
+                `After payment, type *check* to confirm.\n` +
+                `If your link expires again, type *retry*.`
+            );
+        } catch (err) {
+            console.error('Flutterwave consultation retry error:', err.message);
+            return whatsappService.sendText(from, `Could not generate a new link right now. Please try again shortly.`);
+        }
+    }
+
+    // ── Not "check" — remind user ───
     if (input !== 'check') {
+        const existingLink = session.data?.paymentLink;
         return whatsappService.sendText(from,
-            `Waiting for payment.\n\nOnce you have paid, type *check* to confirm.\n\nOr tap the payment link again if you have not paid yet.`
+            `Waiting for payment.\n\n` +
+            (existingLink ? `Your payment link:\n${existingLink}\n\n` : '') +
+            `Once you have paid, type *check* to confirm.\n` +
+            `If your link expired, type *retry* to get a new one.`
         );
     }
 
+    // ── Check payment status ───
     try {
-        const patient = await Patient.findOne({ whatsappNumber: from });
-        if (!patient) {
+        const tx_ref = session.data?.paymentReference;
+        if (!tx_ref) {
             await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
             return handleMainMenu(from, '', session);
         }
 
-        // Flutterwave webhook handles consultation creation + doctor notification
-        // Verify via DB — check if a paid consultation was created for this patient
-        const recentConsultation = await Consultation.findOne({
-            patient: patient._id,
-            isPaid: true,
-            status: 'confirmed'
-        }).sort({ createdAt: -1 });
+        const transaction = await verifyByTxRef(tx_ref);
 
-        if (recentConsultation) {
+        if (transaction?.status === 'successful') {
+            // Flutterwave webhook handles consultation creation + doctor notification
             await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
             return whatsappService.sendButtons(from,
                 `Payment confirmed! Your doctor has been notified.\n\nIf you have not received a message from the doctor within 5 minutes, please contact support.`,
@@ -994,13 +984,135 @@ async function handleConsultationPayment(from, text, session) {
             );
         } else {
             return whatsappService.sendText(from,
-                `Payment not confirmed yet.\n\nPlease complete the payment and type *check* again.`
+                `Payment not confirmed yet.\n\nPlease complete the payment and type *check* again.\n\nIf your link expired, type *retry* to get a new one.`
             );
         }
     } catch (err) {
         console.error('handleConsultationPayment error:', err.message);
         return whatsappService.sendText(from,
             `Could not verify payment. Please try again or contact support.`
+        );
+    }
+}
+
+
+
+// ─── CHANGE 5: handleReviewDoctor (NEW — add at bottom of file) ──────────────
+
+async function handleReviewDoctor(from, text, session) {
+    const input = text?.toLowerCase().trim();
+    const validRatings = ['review_1', 'review_2', 'review_3', 'review_4', 'review_5'];
+
+    if (input === 'review_skip') {
+        await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
+        return whatsappService.sendButtons(from,
+            `No problem! Thank you for using ABC Telemedica. 😊`,
+            [
+                { id: 'consult', title: 'See a doctor' },
+                { id: 'history', title: 'My history' },
+                { id: 'subscribe', title: 'Upgrade plan' }
+            ]
+        );
+    }
+
+    if (!validRatings.includes(input)) {
+        // Re-prompt — patient may have typed something random
+        return whatsappService.sendButtons(from,
+            `Please rate your consultation with *${session.data.reviewDoctorName || 'your doctor'}*:`,
+            [
+                { id: 'review_1', title: '⭐ 1 - Poor' },
+                { id: 'review_2', title: '⭐⭐ 2 - Fair' },
+                { id: 'review_3', title: '⭐⭐⭐ 3 - Good' }
+            ]
+        );
+    }
+
+    const rating = parseInt(input.replace('review_', ''), 10); // 1–5
+
+    // Save rating to session, move to comment step
+    await WaSession.updateOne({ phone: from }, {
+        step: 'REVIEW_COMMENT',
+        'data.reviewRating': rating
+    });
+
+    return whatsappService.sendButtons(from,
+        `${'⭐'.repeat(rating)} *${rating}/5* — thanks!\n\nWould you like to leave a short comment for the doctor?`,
+        [
+            { id: 'review_comment_yes', title: 'Add a comment' },
+            { id: 'review_comment_skip', title: 'Skip' }
+        ]
+    );
+}
+
+
+// ─── CHANGE 6: handleReviewComment (NEW — add after handleReviewDoctor) ──────
+
+async function handleReviewComment(from, text, session) {
+    const input = text?.trim();
+    const isSkip = input?.toLowerCase() === 'review_comment_skip';
+
+    const comment = isSkip ? null : (input?.length > 1 ? input : null);
+
+    try {
+        const consultationId = session.data.reviewConsultationId;
+        const rating = session.data.reviewRating;
+
+        if (!consultationId || !rating) {
+            await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
+            return handleMainMenu(from, '', session);
+        }
+
+        // ── Save review to consultation ────────────────────────────────────────
+        const consultation = await Consultation.findByIdAndUpdate(
+            consultationId,
+            {
+                review: {
+                    rating,
+                    comment,
+                    reviewedAt: new Date()
+                }
+            },
+            { new: true }
+        );
+
+        // ── Recalculate doctor's average rating ────────────────────────────────
+        if (consultation?.doctor) {
+            const allReviews = await Consultation.find({
+                doctor: consultation.doctor,
+                'review.rating': { $exists: true, $ne: null }
+            }).select('review.rating');
+
+            const totalReviews = allReviews.length;
+            const avgRating = totalReviews > 0
+                ? allReviews.reduce((sum, c) => sum + c.review.rating, 0) / totalReviews
+                : 0;
+
+            await Doctor.findByIdAndUpdate(consultation.doctor, {
+                rating: Math.round(avgRating * 10) / 10, // 1 decimal place
+                totalReviews
+            });
+        }
+
+        await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
+
+        return whatsappService.sendButtons(from,
+            `✅ Review submitted! Thank you for the feedback — it helps us improve.\n\nWhat would you like to do next?`,
+            [
+                { id: 'consult', title: 'See a doctor' },
+                { id: 'history', title: 'My history' },
+                { id: 'subscribe', title: 'Upgrade plan' }
+            ]
+        );
+
+    } catch (err) {
+        console.error('❌ handleReviewComment error:', err.message);
+        await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
+        return whatsappService.sendButtons(from,
+            `Your review could not be saved right now, but thank you for using ABC Telemedica!`,
+            [
+                { id: 'consult', title: 'See a doctor' },
+                { id: 'history', title: 'My history' }
+            ]
         );
     }
 }

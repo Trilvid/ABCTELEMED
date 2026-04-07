@@ -13,4 +13,6 @@ router.patch('/:id/cancel', consultationController.cancelConsultation);
 router.get('/doctor/:doctorId', protect('doctor'), consultationController.getDoctorConsultations);
 router.patch('/:id', protect('doctor'), consultationController.updateConsultation);
 
+router.post('/:id/end', protect('doctor'), consultationController.endConsultation);
+
 module.exports = router;

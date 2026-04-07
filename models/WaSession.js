@@ -1,18 +1,3 @@
-// // models/WaSession.js
-// const mongoose = require('mongoose');
-
-// const WaSessionSchema = new mongoose.Schema({
-//     phone: { type: String, required: true, unique: true },
-//     step: { type: String, default: 'WELCOME' },
-//     // e.g. WELCOME → SYMPTOM_COLLECT → TRIAGE → DOCTOR_MATCH → CONSULT
-//     data: { type: Object, default: {} }, // symptoms, age, gender, etc.
-//     consultationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Consultation' },
-//     lastActive: { type: Date, default: Date.now }
-// }, { timestamps: true });
-
-// module.exports = mongoose.model('WaSession', WaSessionSchema);
-
-
 const mongoose = require('mongoose');
 
 const WaSessionSchema = new mongoose.Schema({
@@ -28,6 +13,7 @@ const WaSessionSchema = new mongoose.Schema({
             'ASK_LAST_NAME',
             'ASK_DOB',
             'ASK_GENDER',
+            'ASK_COUNTRY',
             'ASK_STATE',
             'ONBOARDING_COMPLETE',
 
@@ -44,6 +30,18 @@ const WaSessionSchema = new mongoose.Schema({
             'DOCTOR_SELECTED',
             'BOOKING_CONFIRM',
             'BOOKING_COMPLETE',
+
+            // Subscription
+            'SUBSCRIPTION_MENU',
+            'PAYMENT_PENDING',
+            'CONSULTATION_PAYMENT',
+
+            // Review flow  — NEW
+            'REVIEW_DOCTOR',
+            'REVIEW_COMMENT',
+
+            // History
+            'VIEW_HISTORY',
 
             // Profile
             'VIEW_PROFILE',
