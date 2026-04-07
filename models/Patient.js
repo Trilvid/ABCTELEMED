@@ -1,21 +1,20 @@
 const mongoose = require('mongoose');
 
 const medicalHistorySchema = new mongoose.Schema({
-    condition: { type: String, required: true },  // e.g. "Hypertension"
+    condition: { type: String, required: true },
     diagnosedYear: { type: Number },
     onMedication: { type: Boolean, default: false },
     notes: { type: String }
 }, { _id: false });
 
 const allergySchema = new mongoose.Schema({
-    allergen: { type: String, required: true },   // e.g. "Penicillin"
-    reaction: { type: String }                   // e.g. "Rash, swelling"
+    allergen: { type: String, required: true },
+    reaction: { type: String }
 }, { _id: false });
 
 const PatientSchema = new mongoose.Schema({
     // --- Identity ---
     whatsappNumber: { type: String, required: true, unique: true, trim: true },
-    // e.g. "2348012345678" — always stored in international format without +
     firstName: { type: String, trim: true, default: null },
     lastName: { type: String, trim: true, default: null },
     dateOfBirth: { type: Date, default: null },
@@ -25,8 +24,8 @@ const PatientSchema = new mongoose.Schema({
         default: null
     },
     location: {
-        state: { type: String, default: null },   // e.g. "Lagos"
-        country: { type: String, default: 'Nigeria' }
+        country: { type: String, default: 'Nigeria' },
+        state: { type: String, default: null }
     },
 
     // --- Health Profile ---
@@ -56,13 +55,23 @@ const PatientSchema = new mongoose.Schema({
     totalConsultations: { type: Number, default: 0 },
     lastConsultationAt: { type: Date, default: null },
 
-    // --- Subscription (for gating paid features) ---
+    // --- Subscription ---
+    // FIX: enum now matches the full plan keys used across the codebase
     plan: {
         type: String,
-        enum: ['free', 'basic', 'premium'],
+        enum: [
+            'free',
+            'basic_monthly',
+            'basic_annual',
+            'premium_monthly',
+            'premium_annual'
+        ],
         default: 'free'
     },
     planExpiresAt: { type: Date, default: null },
+
+    // --- Contact (optional email for payment receipts) ---
+    email: { type: String, trim: true, lowercase: true, default: null }
 
 }, { timestamps: true });
 
@@ -78,5 +87,24 @@ PatientSchema.virtual('fullName').get(function () {
     if (!this.firstName) return null;
     return `${this.firstName}${this.lastName ? ' ' + this.lastName : ''}`;
 });
+
+// Helper: check if patient has an active paid plan
+PatientSchema.methods.hasActivePlan = function () {
+    return (
+        this.plan &&
+        this.plan !== 'free' &&
+        this.planExpiresAt &&
+        new Date(this.planExpiresAt) > new Date()
+    );
+};
+
+// Helper: check if patient is on a premium plan
+PatientSchema.methods.isPremium = function () {
+    return (
+        (this.plan === 'premium_monthly' || this.plan === 'premium_annual') &&
+        this.planExpiresAt &&
+        new Date(this.planExpiresAt) > new Date()
+    );
+};
 
 module.exports = mongoose.model('Patient', PatientSchema);

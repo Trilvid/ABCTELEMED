@@ -16,9 +16,9 @@ app.use(helmet());
 app.use(cors());
 
 // Body parser middleware
-app.use('/api/paystack/webhook', express.raw({ type: 'application/json' }));
+app.use('/api/flutterwave/webhook', express.raw({ type: 'application/json' }));
 app.use((req, res, next) => {
-    if (req.originalUrl === '/api/paystack/webhook') {
+    if (req.originalUrl === '/api/flutterwave/webhook') {
         return next();
     }
 
@@ -68,7 +68,7 @@ app.use('/api/flutterwave', require('./routes/flutterwave'));
 app.get('/', (req, res) => {
     res.json({
         success: true,
-        message: 'Welcome to ABC Telemed System API',
+        message: 'Welcome to ABC Telemedica System API',
         version: '1.0.0',
         endpoints: {
             doctors: '/api/doctors',
