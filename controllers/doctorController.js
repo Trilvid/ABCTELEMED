@@ -13,7 +13,7 @@ exports.register = async (req, res, next) => {
         const {
             firstName, lastName, email, phone, password,
             specialty, licenseNumber, licenseExpiry,
-            yearsOfExperience, qualifications, bio,
+            yearsOfExperience, qualifications, bio, availabilitySchedule,
             languages, consultationFee, whatsappNumber
         } = req.body;
 
@@ -29,7 +29,7 @@ exports.register = async (req, res, next) => {
             firstName, lastName, email, phone, password,
             specialty, licenseNumber, licenseExpiry,
             yearsOfExperience, qualifications, bio,
-            languages, consultationFee, whatsappNumber
+            languages, consultationFee, whatsappNumber, availabilitySchedule
         });
 
         const token = signToken(doctor._id);

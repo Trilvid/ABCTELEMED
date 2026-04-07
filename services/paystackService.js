@@ -42,9 +42,9 @@ exports.initiateSubscriptionPayment = async ({ email, plan, patientId, phone }) 
     if (!PAYSTACK_SECRET) throw new Error('Missing PAYSTACK_SECRET_KEY');
     if (!process.env.APP_URL) throw new Error('Missing APP_URL');
 
-    const safeEmail = email && email.includes('@') && !email.includes('@abctelemed.com')
+    const safeEmail = email && email.includes('@') && !email.includes('@abctelemedica.com')
         ? email
-        : `patient${phone}@abctelemed.ng`;
+        : `patient${phone}@abctelemedica.ng`;
 
     console.log(`Initiating Paystack for plan: ${plan} | email: ${safeEmail} | amount: ${planData.amount}`);
 
@@ -93,9 +93,9 @@ exports.verifyPayment = async (reference) => {
 exports.initiateConsultationPayment = async ({ email, amount, patientId, doctorId, consultationRef, phone }) => {
     if (!PAYSTACK_SECRET) throw new Error('Missing PAYSTACK_SECRET_KEY');
     if (!process.env.APP_URL) throw new Error('Missing APP_URL');
-    const safeEmail = email && email.includes('@') && !email.includes('@abctelemed.com')
+    const safeEmail = email && email.includes('@') && !email.includes('@abctelemedica.com')
         ? email
-        : `patient${phone}@abctelemed.ng`;
+        : `patient${phone}@abctelemedica.ng`;
 
     console.log(`💳 Initiating consultation payment — amount: ${amount} | email: ${safeEmail}`);
 

@@ -114,7 +114,7 @@ async function handleWelcome(from, text, session) {
     // ── New user — start onboarding ───────────────────────────────────────────
     await WaSession.updateOne({ phone: from }, { step: 'ASK_FIRST_NAME' });
     return whatsappService.sendText(from,
-        `👋 Welcome to *AbcTeleMed*!\n\nGet quality healthcare advice and connect with verified doctors — right here on WhatsApp.\n\nLet's set up your profile quickly.\n\n*What is your first name?*`
+        `👋 Welcome to *ABC Telemedica*!\n\nGet quality healthcare advice and connect with verified doctors right here on WhatsApp.\n\nLet's set up your profile quickly.\n\n*What is your first name?*`
     );
 }
 
@@ -442,7 +442,7 @@ async function handleMainMenu(from, text, session) {
     const patient = await Patient.findOne({ whatsappNumber: from });
     const normalizedPlanBadge = getPlanBadge(patient?.plan);
     return whatsappService.sendButtons(from,
-        `🏥 *AbcTeleMed Main Menu*\n\nPlan: *${normalizedPlanBadge}*\n\nHow can we help you today?`,
+        `🏥 *ABC Telemedica Main Menu*\n\nPlan: *${normalizedPlanBadge}*\n\nHow can we help you today?`,
         [
             { id: 'consult', title: 'See a doctor' },
             { id: 'subscribe', title: 'Upgrade plan' },
@@ -728,7 +728,7 @@ async function handleBookingConfirm(from, text, session) {
 
 async function handleBookingComplete(from, text, session) {
     await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
-    return whatsappService.sendButtons(from, ` *AbcTeleMed Main Menu*\n\n What would you like to do next?`, [
+    return whatsappService.sendButtons(from, ` *ABC Telemedica Main Menu*\n\n What would you like to do next?`, [
         { id: 'consult', title: '🩺 See a doctor' },
         { id: 'subscribe', title: '💳 Upgrade plan' },
         { id: 'history', title: '📋 My history' }

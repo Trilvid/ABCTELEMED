@@ -29,7 +29,7 @@ exports.welcome = async (from, session) => {
     // New user — start onboarding
     await setStep(from, 'ASK_FIRST_NAME');
     return wa.sendText(from,
-        `👋 Welcome to *AbcTeleMed*!\n\nGet quality healthcare advice and connect with verified doctors right here on WhatsApp.\n\nLet's set up your profile quickly.\n\n*What is your first name?*`
+        `👋 Welcome to *ABC Telemedica*!\n\nGet quality healthcare advice and connect with verified doctors right here on WhatsApp.\n\nLet's set up your profile quickly.\n\n*What is your first name?*`
     );
 };
 

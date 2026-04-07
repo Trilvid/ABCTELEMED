@@ -163,7 +163,7 @@ exports.updateConsultation = async (req, res, next) => {
             if (patient?.whatsappNumber) {
                 await require('../services/whatsappService').sendButtons(
                     patient.whatsappNumber,
-                    `✅ *Your consultation has been completed.*\n\nThank you for using AbcTeleMed, ${patient.firstName}.\n\nWhat would you like to do next?`,
+                    `✅ *Your consultation has been completed.*\n\nThank you for using ABC Telemedica, ${patient.firstName}.\n\nWhat would you like to do next?`,
                     [
                         { id: 'consult', title: '🩺 New consultation' },
                         { id: 'history', title: '📋 My history' }
