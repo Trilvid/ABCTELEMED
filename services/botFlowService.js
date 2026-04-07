@@ -5,7 +5,7 @@ const aiService = require('./aiService');
 const Patient = require('../models/Patient');
 const Doctor = require('../models/Doctor');
 const Consultation = require('../models/Consultation');
-const paystackService = require('./paystackService');
+const flutterwaveService = require('./flutterwaveService');
 
 const onboarding = require('./onboardingService');
 const { collectFirstName, collectLastName, collectDob, collectGender, collectState } = require('./onboardingService');
@@ -392,7 +392,7 @@ async function handleMainMenu(from, text, session) {
                 from,
                 `Subscription required.\n\nChoose a plan to get started:`,
                 'View Plans',
-                subscriptionRows(paystackService.PLANS)
+                subscriptionRows(flutterwaveService.PLANS)
             );
             return whatsappService.sendButtons(from,
                 `🔒 *Subscription Required*\n\nYou need an active plan to consult a doctor.\n\nChoose a plan to get started:`,
@@ -684,9 +684,9 @@ async function handleBookingConfirm(from, text, session) {
         return whatsappService.sendText(from, `Could not find that doctor. Please try again.`);
     }
 
-    // ── Generate Paystack payment link for consultation fee ──
+    // ── Generate Flutterwave payment link for consultation fee ──
     try {
-        const { initiateConsultationPayment } = require('./paystackService');
+        const { initiateConsultationPayment } = require('./flutterwaveService');
         const paymentData = await initiateConsultationPayment({
             email: patient.email,
             amount: doctor.consultationFee,
@@ -698,7 +698,7 @@ async function handleBookingConfirm(from, text, session) {
 
         await WaSession.updateOne({ phone: from }, {
             step: 'CONSULTATION_PAYMENT',
-            'data.paymentReference': paymentData.reference,
+            'data.paymentReference': paymentData.tx_ref,
             'data.consultationFee': doctor.consultationFee
         });
 
@@ -708,7 +708,7 @@ async function handleBookingConfirm(from, text, session) {
             `Specialty: ${doctor.specialty.replace('_', ' ')}\n` +
             `Consultation fee: N${doctor.consultationFee.toLocaleString()}\n\n` +
             `Tap the link below to pay securely:\n\n` +
-            `${paymentData.authorization_url}\n\n` +
+            `${paymentData.link}\n\n` +
             `After payment your doctor will be notified immediately.\n` +
             `Type *check* to confirm your payment.`
         );
@@ -740,7 +740,7 @@ async function handleBookingComplete(from, text, session) {
 
 
 async function handleSubscriptionMenu(from, text, session) {
-    const { PLANS, initiateSubscriptionPayment } = require('./paystackService');
+    const { PLANS, initiateSubscriptionPayment } = require('./flutterwaveService');
     const choice = text?.toLowerCase().trim();
 
     const validChoices = ['basic_monthly', 'basic_annual', 'premium_monthly', 'premium_annual', 'cancel'];
@@ -801,7 +801,7 @@ async function handleSubscriptionMenu(from, text, session) {
         await WaSession.updateOne({ phone: from }, {
             step: 'PAYMENT_PENDING',
             'data.pendingPlan': plan,
-            'data.paymentReference': paymentData.reference
+            'data.paymentReference': paymentData.tx_ref
         });
 
         return whatsappService.sendText(from,
@@ -809,11 +809,11 @@ async function handleSubscriptionMenu(from, text, session) {
             `Amount: ${planData.label}\n` +
             `Perks: ${planData.perks}\n\n` +
             `Tap the link below to pay securely:\n\n` +
-            `${paymentData.authorization_url}\n\n` +
+            `${paymentData.link}\n\n` +
             `After payment, type *check* to activate your plan.`
         );
     } catch (err) {
-        console.error('Paystack init error:', err.message);
+        console.error('Flutterwave init error:', err.message);
         await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU' });
         return whatsappService.sendText(from,
             `Could not generate a payment link right now.\n\nPlease try again shortly or contact support.\n\nType anything to return to the menu.`
@@ -823,7 +823,7 @@ async function handleSubscriptionMenu(from, text, session) {
 
 
 async function handlePaymentPending(from, text, session) {
-    const { verifyPayment, PLANS } = require('./paystackService');
+    const { PLANS } = require('./flutterwaveService');
     const input = text?.toLowerCase().trim();
 
     if (input !== 'check') {
@@ -833,31 +833,23 @@ async function handlePaymentPending(from, text, session) {
     }
 
     try {
-        const reference = session.data?.paymentReference;
-        if (!reference) {
+        const plan = session.data?.pendingPlan;
+        if (!plan) {
             await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU' });
             return handleMainMenu(from, '', session);
         }
 
-        const payment = await verifyPayment(reference);
+        // Flutterwave webhook already updates the DB — verify via DB state
+        const patient = await Patient.findOne({ whatsappNumber: from });
+        const isActivated = patient?.plan === plan && patient?.planExpiresAt && new Date(patient.planExpiresAt) > new Date();
 
-        if (payment.status === 'success') {
-            const plan = session.data.pendingPlan;
+        if (isActivated) {
             const planData = PLANS[plan];
-
-            // Annual plans expire in 365 days, monthly in 30 days
-            const daysToAdd = planData.billing === 'annual' ? 365 : 30;
-            const planExpiresAt = new Date(Date.now() + daysToAdd * 24 * 60 * 60 * 1000);
-
-            await Patient.findOneAndUpdate(
-                { whatsappNumber: from },
-                { plan, planExpiresAt }
-            );
             await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
 
             const isPremium = plan.startsWith('premium');
             return whatsappService.sendButtons(from,
-                `Payment confirmed!\n\n${planData.name} is now active until ${planExpiresAt.toDateString()}.\n\n${isPremium ? 'You now have instant doctor assignment.' : 'You can now access doctor consultations.'}`,
+                `Payment confirmed!\n\n${planData.name} is now active until ${new Date(patient.planExpiresAt).toDateString()}.\n\n${isPremium ? 'You now have instant doctor assignment.' : 'You can now access doctor consultations.'}`,
                 [
                     { id: 'consult', title: 'See a doctor' },
                     { id: 'history', title: 'My history' },
@@ -966,9 +958,7 @@ async function handleViewHistory(from, text, session) {
     }
 }
 
-// ADD as new function — does not replace anything
 async function handleConsultationPayment(from, text, session) {
-    const { verifyPayment } = require('./paystackService');
     const input = text?.toLowerCase().trim();
 
     if (input !== 'check') {
@@ -978,17 +968,21 @@ async function handleConsultationPayment(from, text, session) {
     }
 
     try {
-        const reference = session.data?.paymentReference;
-        if (!reference) {
+        const patient = await Patient.findOne({ whatsappNumber: from });
+        if (!patient) {
             await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
             return handleMainMenu(from, '', session);
         }
 
-        const payment = await verifyPayment(reference);
+        // Flutterwave webhook handles consultation creation + doctor notification
+        // Verify via DB — check if a paid consultation was created for this patient
+        const recentConsultation = await Consultation.findOne({
+            patient: patient._id,
+            isPaid: true,
+            status: 'confirmed'
+        }).sort({ createdAt: -1 });
 
-        if (payment.status === 'success') {
-            // Paystack webhook handles the actual consultation creation + doctor notification
-            // This is just a fallback confirmation check for the patient
+        if (recentConsultation) {
             await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
             return whatsappService.sendButtons(from,
                 `Payment confirmed! Your doctor has been notified.\n\nIf you have not received a message from the doctor within 5 minutes, please contact support.`,
@@ -1004,7 +998,7 @@ async function handleConsultationPayment(from, text, session) {
             );
         }
     } catch (err) {
-        console.error('❌ handleConsultationPayment error:', err.message);
+        console.error('handleConsultationPayment error:', err.message);
         return whatsappService.sendText(from,
             `Could not verify payment. Please try again or contact support.`
         );
