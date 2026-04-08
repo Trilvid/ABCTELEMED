@@ -85,6 +85,23 @@ router.post('/webhook', async (req, res) => {
                     flutterwaveReference: event.data.tx_ref
                 });
 
+                // ── Create Earning record (15% commission) ───
+                const Earning = require('../models/Earning');
+                const gross = doctor.consultationFee;
+                const { commission, doctorAmount } = Earning.calculateSplit(gross);
+
+                await Earning.create({
+                    consultation: consultation._id,
+                    doctor: doctor._id,
+                    patient: patient._id,
+                    grossAmount: gross,
+                    commissionAmount: commission,
+                    doctorAmount,
+                    status: 'pending',
+                    paymentGateway: 'flutterwave',
+                    gatewayReference: event.data.tx_ref,
+                });
+
                 await Doctor.findByIdAndUpdate(doctorId, {
                     isAvailableNow: false,
                     activeConsultationId: consultation._id

@@ -7,7 +7,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon server.js",
     "start": "node server.js",
-    "seed:import": "node seed.js"
+    "seed:import": "node scripts/seed.js",
+    "seed:superadmin": "node scripts/seedSuperAdmin.js"
   },
   "keywords": [],
   "author": "Nnanna Divine",

@@ -62,6 +62,7 @@ app.use('/api/whatsapp', require('./routes/whatsapp'));
 app.use('/api/consultations', require('./routes/consultations'));
 app.use('/api/paystack', require('./routes/paystack'));
 app.use('/api/flutterwave', require('./routes/flutterwave'));
+app.use('/api/admin', require('./routes/admin'));
 
 
 // Welcome route

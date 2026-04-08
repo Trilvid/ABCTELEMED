@@ -224,22 +224,22 @@ exports.forgotPassword = async (req, res, next) => {
 
             // ── Send email via Resend (plug in when Resend is configured) ───────
             // For now: log to console. Replace this block when Resend is ready.
-            console.log(`\n🔑 PASSWORD RESET LINK for ${doctor.email}:\n${resetURL}\n`);
 
             // TODO: Replace console.log with Resend email send:
-            // const { Resend } = require('resend');
-            // const resend = new Resend(process.env.RESEND_API_KEY);
-            // await resend.emails.send({
-            //     from: 'ABC Telemedica <noreply@abctelemedica.ng>',
-            //     to: doctor.email,
-            //     subject: 'Reset your ABC Telemedica password',
-            //     html: `
-            //         <p>Hello Dr. ${doctor.firstName},</p>
-            //         <p>You requested a password reset. Click the link below (expires in 1 hour):</p>
-            //         <a href="${resetURL}">${resetURL}</a>
-            //         <p>If you did not request this, you can ignore this email.</p>
-            //     `
-            // });
+            const { Resend } = require('resend');
+            const resend = new Resend(process.env.RESEND_API_KEY);
+            console.log(`\n🔑 PASSWORD RESET LINK for ${doctor.email}:\n${resetURL}\n`);
+            await resend.emails.send({
+                from: 'ABC Telemedica <noreply@abctelemedica.ng>',
+                to: doctor.email,
+                subject: 'Reset your ABC Telemedica password',
+                html: `
+                    <p>Hello Dr. ${doctor.firstName},</p>
+                    <p>You requested a password reset. Click the link below (expires in 1 hour):</p>
+                    <a href="${resetURL}">${resetURL}</a>
+                    <p>If you did not request this, you can ignore this email.</p>
+                `
+            });
         }
 
         // Always return 200 — don't reveal whether email exists (security)

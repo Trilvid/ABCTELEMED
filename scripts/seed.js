@@ -2,10 +2,10 @@ require('dotenv').config();
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
-const Doctor = require('./models/Doctor')
-const Patient = require('./models/Patient');
-const WaSession = require('./models/WaSession');
-const Consultation = require('./models/Consultation');
+const Doctor = require('../models/Doctor')
+const Patient = require('../models/Patient');
+const WaSession = require('../models/WaSession');
+const Consultation = require('../models/Consultation');
 
 
 const doctors = [
