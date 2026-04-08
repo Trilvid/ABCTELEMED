@@ -1,5 +1,6 @@
 const Doctor = require('../models/Doctor');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 
 const signToken = (id) =>
     jwt.sign({ id, role: 'doctor' }, process.env.JWT_SECRET, {
@@ -192,6 +193,100 @@ exports.verifyDoctor = async (req, res, next) => {
             status: 'success',
             message: `Doctor has been ${action === 'approve' ? 'verified' : 'rejected'}.`,
             data: { doctor }
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+// ─── POST /api/doctors/forgot-password ────
+// Generates a reset token, saves its hash to the DB, and sends a reset email.
+// Always responds with 200 to prevent email enumeration.
+exports.forgotPassword = async (req, res, next) => {
+    try {
+        const { email } = req.body;
+        if (!email) return res.status(400).json({ status: 'error', message: 'Email is required.' });
+
+        const doctor = await require('../models/Doctor').findOne({ email: email.toLowerCase().trim() });
+
+        if (doctor) {
+            // Generate a random token
+            const rawToken = crypto.randomBytes(32).toString('hex');
+            // Store the HASH in the DB (never store raw token)
+            const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+            doctor.passwordResetToken = hashedToken;
+            doctor.passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+            await doctor.save({ validateBeforeSave: false });
+
+            // ── Build the reset URL ──
+            const resetURL = `${process.env.CLIENT_URL || 'http://localhost:5173'}/auth/reset-password/${rawToken}`;
+
+            // ── Send email via Resend (plug in when Resend is configured) ───────
+            // For now: log to console. Replace this block when Resend is ready.
+            console.log(`\n🔑 PASSWORD RESET LINK for ${doctor.email}:\n${resetURL}\n`);
+
+            // TODO: Replace console.log with Resend email send:
+            // const { Resend } = require('resend');
+            // const resend = new Resend(process.env.RESEND_API_KEY);
+            // await resend.emails.send({
+            //     from: 'ABC Telemedica <noreply@abctelemedica.ng>',
+            //     to: doctor.email,
+            //     subject: 'Reset your ABC Telemedica password',
+            //     html: `
+            //         <p>Hello Dr. ${doctor.firstName},</p>
+            //         <p>You requested a password reset. Click the link below (expires in 1 hour):</p>
+            //         <a href="${resetURL}">${resetURL}</a>
+            //         <p>If you did not request this, you can ignore this email.</p>
+            //     `
+            // });
+        }
+
+        // Always return 200 — don't reveal whether email exists (security)
+        return res.status(200).json({
+            status: 'success',
+            message: 'If an account with that email exists, a reset link has been sent.'
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+// ─── PATCH /api/doctors/reset-password/:token ───
+// Validates the token (from email link) and updates the password.
+exports.resetPassword = async (req, res, next) => {
+    try {
+        const { token } = req.params;
+        const { password } = req.body;
+
+        if (!token) return res.status(400).json({ status: 'error', message: 'Reset token is missing.' });
+        if (!password || password.length < 6)
+            return res.status(400).json({ status: 'error', message: 'Password must be at least 6 characters.' });
+
+        // Hash the incoming raw token to compare with stored hash
+        const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+        const doctor = await require('../models/Doctor').findOne({
+            passwordResetToken: hashedToken,
+            passwordResetExpires: { $gt: new Date() }, // not expired
+        }).select('+password');
+
+        if (!doctor) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'This reset link is invalid or has expired. Please request a new one.'
+            });
+        }
+
+        // Update password — the pre-save hook will hash it
+        doctor.password = password;
+        doctor.passwordResetToken = undefined;
+        doctor.passwordResetExpires = undefined;
+        await doctor.save();
+
+        return res.status(200).json({
+            status: 'success',
+            message: 'Password updated successfully. Please log in with your new password.'
         });
     } catch (err) {
         next(err);
