@@ -100,20 +100,6 @@ async function handleWelcome(from, text, session) {
                 { id: 'history', title: 'My history' }
             ]
         );
-        const planBadge = existing.plan === 'premium'
-            ? '⚡ Premium'
-            : existing.plan === 'basic'
-                ? '✅ Basic'
-                : '🆓 Free';
-
-        return whatsappService.sendButtons(from,
-            `Welcome back, *${existing.firstName}*! 👋\n\nPlan: *${planBadge}*\n\nHow can I help you today?`,
-            [
-                { id: 'consult', title: '🩺 See a doctor' },
-                { id: 'subscribe', title: '💳 Upgrade plan' },
-                { id: 'history', title: '📋 My history' }
-            ]
-        );
     }
 
     // ── New user — start onboarding ───────────────────────────────────────────
@@ -1094,14 +1080,42 @@ async function handleReviewDoctor(from, text, session) {
 }
 
 
-// ─── CHANGE 6: handleReviewComment (NEW — add after handleReviewDoctor) ──────
-
+// ─── HandleReviewComment ──────
 async function handleReviewComment(from, text, session) {
     const input = text?.trim();
-    const isSkip = input?.toLowerCase() === 'review_comment_skip';
+    const lower = input?.toLowerCase();
 
-    const comment = isSkip ? null : (input?.length > 1 ? input : null);
+    // ── Case 1: Patient chose "Skip" ───
+    if (lower === 'review_comment_skip') {
+        return await saveReview(from, session, null);
+    }
 
+    // ── Case 2: Patient chose "Add a comment" ────
+    if (lower === 'review_comment_yes') {
+        await WaSession.updateOne({ phone: from }, { 'data.awaitingComment': true });
+        return whatsappService.sendText(from,
+            `Please type your comment below and send it.\n\n_Keep it brief — what made this consultation stand out, good or bad?_`
+        );
+    }
+
+    // ── Case 3: awaitingComment is true — this IS the typed comment ───────
+    if (session.data?.awaitingComment) {
+        const comment = input?.length >= 2 ? input : null;
+        return await saveReview(from, session, comment);
+    }
+
+    // ── Fallback: re-prompt (user typed something unexpected) ─────────────
+    return whatsappService.sendButtons(from,
+        `Would you like to leave a comment for the doctor?`,
+        [
+            { id: 'review_comment_yes', title: 'Add a comment' },
+            { id: 'review_comment_skip', title: 'Skip' }
+        ]
+    );
+}
+
+// ── Shared save logic extracted so both skip and comment paths use it ────
+async function saveReview(from, session, comment) {
     try {
         const consultationId = session.data.reviewConsultationId;
         const rating = session.data.reviewRating;
@@ -1111,20 +1125,12 @@ async function handleReviewComment(from, text, session) {
             return handleMainMenu(from, '', session);
         }
 
-        // ── Save review to consultation ────────────────────────────────────────
         const consultation = await Consultation.findByIdAndUpdate(
             consultationId,
-            {
-                review: {
-                    rating,
-                    comment,
-                    reviewedAt: new Date()
-                }
-            },
+            { review: { rating, comment, reviewedAt: new Date() } },
             { new: true }
         );
 
-        // ── Recalculate doctor's average rating ────────────────────────────────
         if (consultation?.doctor) {
             const allReviews = await Consultation.find({
                 doctor: consultation.doctor,
@@ -1137,27 +1143,26 @@ async function handleReviewComment(from, text, session) {
                 : 0;
 
             await Doctor.findByIdAndUpdate(consultation.doctor, {
-                rating: Math.round(avgRating * 10) / 10, // 1 decimal place
-                totalReviews
+                rating: Math.round(avgRating * 10) / 10,
+                totalReviews,
             });
         }
 
         await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
 
         return whatsappService.sendButtons(from,
-            `✅ Review submitted! Thank you for the feedback — it helps us improve.\n\nWhat would you like to do next?`,
+            `✅ Review submitted! Thank you — your feedback helps us improve.\n\nWhat would you like to do next?`,
             [
                 { id: 'consult', title: 'See a doctor' },
                 { id: 'history', title: 'My history' },
                 { id: 'subscribe', title: 'Upgrade plan' }
             ]
         );
-
     } catch (err) {
-        console.error('❌ handleReviewComment error:', err.message);
+        console.error('❌ saveReview error:', err.message);
         await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
         return whatsappService.sendButtons(from,
-            `Your review could not be saved right now, but thank you for using ABC Telemedica!`,
+            `Your review could not be saved right now. Thank you for using ABC Telemedica!`,
             [
                 { id: 'consult', title: 'See a doctor' },
                 { id: 'history', title: 'My history' }
@@ -1165,3 +1170,4 @@ async function handleReviewComment(from, text, session) {
         );
     }
 }
+

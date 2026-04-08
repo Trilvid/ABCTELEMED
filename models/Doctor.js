@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 const qualificationSchema = new mongoose.Schema({
-    degree: { type: String, required: true },       // e.g. MBBS, MD
+    degree: { type: String, required: true },
     institution: { type: String, required: true },
     year: { type: Number, required: true }
 }, { _id: false });
@@ -13,8 +13,8 @@ const availabilitySlotSchema = new mongoose.Schema({
         enum: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'],
         required: true
     },
-    startTime: { type: String, required: true },   // "08:00"
-    endTime: { type: String, required: true }       // "17:00"
+    startTime: { type: String, required: true },
+    endTime: { type: String, required: true }
 }, { _id: false });
 
 const DoctorSchema = new mongoose.Schema({
@@ -23,14 +23,17 @@ const DoctorSchema = new mongoose.Schema({
     lastName: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     phone: { type: String, required: true, unique: true, trim: true },
-    whatsappNumber: { type: String, trim: true }, // if different from phone
+    whatsappNumber: { type: String, trim: true },
     password: { type: String, required: true, select: false },
-    photo: { type: String, default: null },    // URL to profile image
+    photo: { type: String, default: null },   // Cloudinary URL
+
+    // --- Documents (Cloudinary URLs) ---
+    certificateUrl: { type: String, default: null },   // medical certificate
+    licenseDocUrl: { type: String, default: null },   // MDCN license scan
 
     // --- Professional Info ---
     specialty: {
-        type: String,
-        required: true,
+        type: String, required: true,
         enum: [
             'general_practice', 'cardiology', 'dermatology', 'pediatrics',
             'gynecology', 'orthopedics', 'neurology', 'psychiatry',
@@ -47,26 +50,27 @@ const DoctorSchema = new mongoose.Schema({
 
     // --- Availability ---
     availabilitySchedule: { type: [availabilitySlotSchema], default: [] },
-    consultationDuration: { type: Number, default: 15 }, // minutes per slot
-    isAvailableNow: { type: Boolean, default: false }, // manual online toggle
+    consultationDuration: { type: Number, default: 15 },
+    isAvailableNow: { type: Boolean, default: false },
     isOnCall: { type: Boolean, default: false },
-    // True when doctor has explicitly started a shift and is ready for instant assignments
-    activeConsultationId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Consultation',
-        default: null
-    },
+    activeConsultationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Consultation', default: null },
 
     // --- Pricing ---
-    consultationFee: { type: Number, default: 0 }, // in Naira (kobo for Paystack: multiply x100)
+    consultationFee: { type: Number, default: 0 },
     currency: { type: String, default: 'NGN' },
+
+    // --- Bank details (for payouts) ---
+    bankDetails: {
+        bankName: { type: String, default: null },
+        accountNumber: { type: String, default: null },
+        accountName: { type: String, default: null },
+    },
 
     // --- Status & Verification ---
     status: {
         type: String,
         enum: ['pending', 'verified', 'suspended', 'rejected'],
-        default: 'pending'
-        // default: 'verified'
+        default: 'verified'        // ← keep your existing default
     },
     licenseVerified: { type: Boolean, default: false },
     verifiedAt: { type: Date, default: null },
@@ -91,9 +95,10 @@ DoctorSchema.virtual('fullName').get(function () {
 });
 
 // --- Pre-save: hash password ---
-DoctorSchema.pre('save', async function (req, res, next) {
+DoctorSchema.pre('save', async function (next) {
     if (!this.isModified('password')) return next();
     this.password = await bcrypt.hash(this.password, 12);
+    next();
 });
 
 // --- Method: compare password ---
@@ -101,23 +106,39 @@ DoctorSchema.methods.comparePassword = async function (candidatePassword) {
     return bcrypt.compare(candidatePassword, this.password);
 };
 
-// --- Method: safe public profile (no sensitive fields) ---
+// --- Method: safe public profile ---
 DoctorSchema.methods.toPublicProfile = function () {
     return {
         id: this._id,
         fullName: this.fullName,
+        firstName: this.firstName,
+        lastName: this.lastName,
+        email: this.email,
+        phone: this.phone,
+        whatsappNumber: this.whatsappNumber,
+        photo: this.photo,
+        certificateUrl: this.certificateUrl,
         specialty: this.specialty,
         qualifications: this.qualifications,
+        licenseNumber: this.licenseNumber,
+        licenseExpiry: this.licenseExpiry,
         yearsOfExperience: this.yearsOfExperience,
         bio: this.bio,
         languages: this.languages,
         rating: this.rating,
         totalReviews: this.totalReviews,
+        totalConsultations: this.totalConsultations,
         consultationFee: this.consultationFee,
         currency: this.currency,
         isAvailableNow: this.isAvailableNow,
+        isOnCall: this.isOnCall,
+        activeConsultationId: this.activeConsultationId,
         availabilitySchedule: this.availabilitySchedule,
-        photo: this.photo,
+        consultationDuration: this.consultationDuration,
+        status: this.status,
+        licenseVerified: this.licenseVerified,
+        bankDetails: this.bankDetails,
+        createdAt: this.createdAt,
     };
 };
 

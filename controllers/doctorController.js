@@ -1,6 +1,7 @@
 const Doctor = require('../models/Doctor');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const { Resend } = require('resend');
 
 const signToken = (id) =>
     jwt.sign({ id, role: 'doctor' }, process.env.JWT_SECRET, {
@@ -200,56 +201,64 @@ exports.verifyDoctor = async (req, res, next) => {
 };
 
 // ─── POST /api/doctors/forgot-password ────
-// Generates a reset token, saves its hash to the DB, and sends a reset email.
-// Always responds with 200 to prevent email enumeration.
 exports.forgotPassword = async (req, res, next) => {
     try {
         const { email } = req.body;
         if (!email) return res.status(400).json({ status: 'error', message: 'Email is required.' });
 
-        const doctor = await require('../models/Doctor').findOne({ email: email.toLowerCase().trim() });
+        const Doctor = require('../models/Doctor');
+        const doctor = await Doctor.findOne({ email: email.toLowerCase().trim() });
 
         if (doctor) {
-            // Generate a random token
             const rawToken = crypto.randomBytes(32).toString('hex');
-            // Store the HASH in the DB (never store raw token)
             const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
 
             doctor.passwordResetToken = hashedToken;
-            doctor.passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+            doctor.passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000);
             await doctor.save({ validateBeforeSave: false });
 
-            // ── Build the reset URL ──
-            const resetURL = `${process.env.CLIENT_URL || 'http://localhost:5173'}/auth/reset-password/${rawToken}`;
+            const resetURL = `${process.env.CLIENT_URL}/auth/reset-password/${rawToken}`;
 
-            // ── Send email via Resend (plug in when Resend is configured) ───────
-            // For now: log to console. Replace this block when Resend is ready.
-
-            // TODO: Replace console.log with Resend email send:
-            const { Resend } = require('resend');
-            const resend = new Resend(process.env.RESEND_API_KEY);
-            console.log(`\n🔑 PASSWORD RESET LINK for ${doctor.email}:\n${resetURL}\n`);
-            await resend.emails.send({
-                from: 'ABC Telemedica <noreply@abctelemedica.ng>',
-                to: doctor.email,
-                subject: 'Reset your ABC Telemedica password',
-                html: `
-                    <p>Hello Dr. ${doctor.firstName},</p>
-                    <p>You requested a password reset. Click the link below (expires in 1 hour):</p>
-                    <a href="${resetURL}">${resetURL}</a>
-                    <p>If you did not request this, you can ignore this email.</p>
-                `
-            });
+            // ── Send email via Resend ──
+            try {
+                const resend = new Resend(process.env.RESEND_API_KEY);
+                await resend.emails.send({
+                    from: `ABC Telemedica <${process.env.FROM_EMAIL || 'noreply@abctelemedica.ng'}>`,
+                    to: doctor.email,
+                    subject: 'Reset your ABC Telemedica password',
+                    html: `
+                        <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;background:#f5f7fa;border-radius:16px;">
+                            <div style="background:linear-gradient(135deg,#564DDF,#14B8A6);border-radius:12px;padding:24px;text-align:center;margin-bottom:28px;">
+                                <h1 style="color:white;margin:0;font-size:1.4rem;">ABC Telemedica</h1>
+                            </div>
+                            <h2 style="color:#0F2940;margin:0 0 8px;">Password reset request</h2>
+                            <p style="color:#4B5563;line-height:1.6;margin:0 0 24px;">
+                                Hello Dr. ${doctor.firstName},<br><br>
+                                We received a request to reset your password. Click the button below to set a new one. This link expires in <strong>1 hour</strong>.
+                            </p>
+                            <a href="${resetURL}" style="display:inline-block;padding:14px 28px;background:#564DDF;color:white;text-decoration:none;border-radius:10px;font-weight:700;font-size:0.95rem;">
+                                Reset my password
+                            </a>
+                            <p style="color:#9CA3AF;font-size:0.78rem;margin:24px 0 0;line-height:1.6;">
+                                If you didn't request this, you can safely ignore this email. Your password will not change.<br>
+                                Or copy this link: <span style="color:#564DDF;">${resetURL}</span>
+                            </p>
+                        </div>
+                    `,
+                });
+                console.log(`✅ Password reset email sent to ${doctor.email}`);
+            } catch (emailErr) {
+                console.error('❌ Resend email error:', emailErr.message);
+                // Don't fail the request — token is saved, user can try again
+            }
         }
 
-        // Always return 200 — don't reveal whether email exists (security)
+        // Always 200 — never leak whether email exists
         return res.status(200).json({
             status: 'success',
-            message: 'If an account with that email exists, a reset link has been sent.'
+            message: 'If an account with that email exists, a reset link has been sent.',
         });
-    } catch (err) {
-        next(err);
-    }
+    } catch (err) { next(err); }
 };
 
 // ─── PATCH /api/doctors/reset-password/:token ───

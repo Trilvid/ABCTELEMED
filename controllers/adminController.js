@@ -28,9 +28,9 @@ const audit = (req, opts) => {
     }).catch(err => console.error('Audit log error:', err.message));
 };
 
-// ════════════════════════════════════════════════════════════════════════════
+// ════════
 // AUTH
-// ════════════════════════════════════════════════════════════════════════════
+// ═════════
 
 // POST /api/admin/login
 exports.login = async (req, res, next) => {
@@ -101,9 +101,9 @@ exports.getMe = async (req, res) => {
     res.status(200).json({ status: 'success', data: { admin: data } });
 };
 
-// ════════════════════════════════════════════════════════════════════════════
+// ═════════
 // PLATFORM STATS
-// ════════════════════════════════════════════════════════════════════════════
+// ══════════
 
 // GET /api/admin/stats
 exports.getStats = async (req, res, next) => {
@@ -150,9 +150,9 @@ exports.getStats = async (req, res, next) => {
     } catch (err) { next(err); }
 };
 
-// ════════════════════════════════════════════════════════════════════════════
+// ═════════
 // DOCTORS MANAGEMENT
-// ════════════════════════════════════════════════════════════════════════════
+// ═════════
 
 // GET /api/admin/doctors
 exports.getDoctors = async (req, res, next) => {
@@ -238,9 +238,9 @@ exports.updateDoctorStatus = async (req, res, next) => {
     } catch (err) { next(err); }
 };
 
-// ════════════════════════════════════════════════════════════════════════════
+// ═══════════
 // PATIENTS MANAGEMENT
-// ════════════════════════════════════════════════════════════════════════════
+// ═════════════════════════
 
 // GET /api/admin/patients
 exports.getPatients = async (req, res, next) => {
@@ -314,9 +314,9 @@ exports.updatePatient = async (req, res, next) => {
     } catch (err) { next(err); }
 };
 
-// ════════════════════════════════════════════════════════════════════════════
+// ═════════════════
 // CONSULTATIONS
-// ════════════════════════════════════════════════════════════════════════════
+// ════════════════════
 
 // GET /api/admin/consultations
 exports.getConsultations = async (req, res, next) => {
@@ -356,9 +356,9 @@ exports.getConsultationDetail = async (req, res, next) => {
     } catch (err) { next(err); }
 };
 
-// ════════════════════════════════════════════════════════════════════════════
+// ════════════════
 // EARNINGS & PAYOUTS
-// ════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════
 
 // GET /api/admin/earnings
 exports.getEarnings = async (req, res, next) => {
@@ -452,9 +452,9 @@ exports.bulkPayout = async (req, res, next) => {
     } catch (err) { next(err); }
 };
 
-// ════════════════════════════════════════════════════════════════════════════
+// ═══════════════
 // AUDIT LOGS
-// ════════════════════════════════════════════════════════════════════════════
+// ═════════════════════════
 
 // GET /api/admin/audit-logs
 exports.getAuditLogs = async (req, res, next) => {
@@ -474,9 +474,9 @@ exports.getAuditLogs = async (req, res, next) => {
     } catch (err) { next(err); }
 };
 
-// ════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════
 // ADMIN MANAGEMENT (superAdmin only)
-// ════════════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════
 
 // GET /api/admin/admins
 exports.getAdmins = async (req, res, next) => {
@@ -523,5 +523,63 @@ exports.deleteAdmin = async (req, res, next) => {
         });
 
         res.status(200).json({ status: 'success', message: 'Admin deleted.' });
+    } catch (err) { next(err); }
+};
+
+// GET /api/admin/withdrawals
+exports.adminGetWithdrawals = async (req, res, next) => {
+    try {
+        const { status, page = 1, limit = 20 } = req.query;
+        const filter = {};
+        if (status) filter.status = status;
+        const skip = (Number(page) - 1) * Number(limit);
+        const [withdrawals, total] = await Promise.all([
+            WithdrawalRequest.find(filter)
+                .populate('doctor', 'firstName lastName email phone bankDetails')
+                .sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
+            WithdrawalRequest.countDocuments(filter),
+        ]);
+        res.status(200).json({ status: 'success', total, totalPages: Math.ceil(total / Number(limit)), data: { withdrawals } });
+    } catch (err) { next(err); }
+};
+
+// PATCH /api/admin/withdrawals/:id — admin processes or rejects
+exports.adminProcessWithdrawal = async (req, res, next) => {
+    try {
+        const { action, payoutReference, adminNote, rejectionReason } = req.body;
+        const withdrawal = await WithdrawalRequest.findById(req.params.id).populate('doctor', 'firstName lastName');
+        if (!withdrawal) return res.status(404).json({ status: 'error', message: 'Withdrawal request not found.' });
+        if (withdrawal.status === 'paid' || withdrawal.status === 'rejected')
+            return res.status(400).json({ status: 'error', message: `This request is already ${withdrawal.status}.` });
+
+        if (action === 'pay') {
+            withdrawal.status = 'paid';
+            withdrawal.processedAt = new Date();
+            withdrawal.processedBy = req.admin._id;
+            withdrawal.payoutReference = payoutReference || null;
+            withdrawal.adminNote = adminNote || null;
+            // Mark all associated earnings as paid
+            await Earning.updateMany({ _id: { $in: withdrawal.earningIds } }, { status: 'paid', paidAt: new Date(), paidBy: req.admin._id, payoutReference });
+        } else {
+            withdrawal.status = 'rejected';
+            withdrawal.processedAt = new Date();
+            withdrawal.processedBy = req.admin._id;
+            withdrawal.rejectionReason = rejectionReason || 'No reason provided';
+            // Revert earnings to pending
+            await Earning.updateMany({ _id: { $in: withdrawal.earningIds } }, { status: 'pending' });
+        }
+
+        await withdrawal.save();
+
+        AuditLog.create({
+            performedBy: req.admin._id, performedByModel: 'Admin',
+            performedByName: `${req.admin.firstName} ${req.admin.lastName}`,
+            performedByRole: req.admin.role,
+            action: 'PAYOUT', entity: 'Earning',
+            description: `Withdrawal ${action === 'pay' ? 'paid' : 'rejected'} for Dr. ${withdrawal.doctor?.lastName}. Amount: ₦${withdrawal.amount.toLocaleString()}. Ref: ${payoutReference || 'none'}`,
+            ipAddress: req.ip,
+        }).catch(() => { });
+
+        res.status(200).json({ status: 'success', message: `Withdrawal ${action === 'pay' ? 'processed' : 'rejected'}.`, data: { withdrawal } });
     } catch (err) { next(err); }
 };

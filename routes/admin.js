@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const ctrl = require('../controllers/adminController');
+const withdrawalCtrl = require('../controllers/withdrawalController');
 const { protect, requireSuperAdmin } = require('../middleware/authMiddleware');
 
 const auth = protect('admin');  // shorthand
@@ -40,8 +41,11 @@ router.get('/earnings/doctor/:doctorId', auth, ctrl.getDoctorEarnings);
 router.patch('/earnings/:id/payout', auth, ctrl.processPayout);
 router.post('/earnings/bulk-payout', auth, ctrl.bulkPayout);
 
+// ── Withdrawals (admin processing) ─────────
+router.get('/withdrawals', auth, withdrawalCtrl.adminGetWithdrawals);
+router.patch('/withdrawals/:id', auth, withdrawalCtrl.adminProcessWithdrawal);
+
 // ── Audit logs ───
 router.get('/audit-logs', auth, ctrl.getAuditLogs);
 
 module.exports = router;
-
