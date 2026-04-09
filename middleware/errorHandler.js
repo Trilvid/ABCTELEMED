@@ -1,10 +1,17 @@
 // Error handler middleware
 const errorHandler = (err, req, res, next) => {
     let error = { ...err };
-    error.message = err.message;
+    error.message = Array.isArray(err.message) ? err.message.join(', ') : err.message;
 
-    // Log error for dev
-    console.error(err);
+    if (process.env.NODE_ENV !== 'test') {
+        console.error({
+            message: err.message,
+            name: err.name,
+            statusCode: err.statusCode || 500,
+            path: req.originalUrl,
+            method: req.method,
+        });
+    }
 
     if (res.headersSent) {
         return next(err);
@@ -25,8 +32,19 @@ const errorHandler = (err, req, res, next) => {
 
     // Mongoose validation error
     if (err.name === 'ValidationError') {
-        const message = Object.values(err.errors).map(val => val.message);
+        const message = Object.values(err.errors).map(val => val.message).join(', ');
         error = { message, statusCode: 400 };
+    }
+
+    if (err.name === 'MulterError') {
+        const message = err.code === 'LIMIT_FILE_SIZE'
+            ? 'Uploaded file exceeds the allowed size.'
+            : 'Invalid file upload.';
+        error = { message, statusCode: 400 };
+    }
+
+    if (err.statusCode && !error.statusCode) {
+        error.statusCode = err.statusCode;
     }
 
     // JWT errors

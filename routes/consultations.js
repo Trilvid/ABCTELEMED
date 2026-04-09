@@ -7,7 +7,7 @@ const { protect } = require('../middleware/authMiddleware');
 router.post('/', consultationController.createConsultation);
 router.get('/:id', consultationController.getConsultation);
 router.get('/patient/:patientId', consultationController.getPatientConsultations);
-router.patch('/:id/cancel', consultationController.cancelConsultation);
+router.patch('/:id/cancel', protect('doctor'), consultationController.cancelConsultation);
 
 // Doctor routes
 router.get('/doctor/:doctorId', protect('doctor'), consultationController.getDoctorConsultations);

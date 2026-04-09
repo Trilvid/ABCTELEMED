@@ -13,6 +13,9 @@ exports.protect = (role) => async (req, res, next) => {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
         if (role === 'doctor') {
+            if (decoded.role !== 'doctor') {
+                return res.status(403).json({ status: 'error', message: 'Invalid token role.' });
+            }
             const doctor = await Doctor.findById(decoded.id);
             if (!doctor) return res.status(401).json({ status: 'error', message: 'Doctor no longer exists.' });
             if (doctor.status === 'suspended')
@@ -21,11 +24,13 @@ exports.protect = (role) => async (req, res, next) => {
         }
 
         if (role === 'admin') {
+            if (!['admin', 'superAdmin'].includes(decoded.role)) {
+                return res.status(403).json({ status: 'error', message: 'Invalid token role.' });
+            }
             const admin = await Admin.findById(decoded.id);
             if (!admin) return res.status(401).json({ status: 'error', message: 'Admin account not found.' });
             if (!admin.isActive) return res.status(403).json({ status: 'error', message: 'This admin account is deactivated.' });
-            // Verify token role matches DB role (prevents token reuse after role change)
-            if (!['admin', 'superAdmin'].includes(decoded.role))
+            if (admin.role !== decoded.role)
                 return res.status(403).json({ status: 'error', message: 'Invalid token role.' });
             req.admin = admin;
         }

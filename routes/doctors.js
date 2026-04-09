@@ -11,7 +11,6 @@ router.post('/login', doctorController.login);
 router.post('/forgot-password', doctorController.forgotPassword);
 router.patch('/reset-password/:token', doctorController.resetPassword);
 router.get('/', doctorController.getAllDoctors);
-router.get('/:id', doctorController.getDoctorById);
 
 // ── Doctor-protected ───
 router.patch('/:id', protect('doctor'), doctorController.updateProfile);
@@ -24,5 +23,6 @@ router.get('/earnings/summary', protect('doctor'), withdrawalCtrl.getEarningsSum
 
 // ── Admin-protected ──
 router.patch('/:id/verify', protect('admin'), doctorController.verifyDoctor);
+router.get('/:id', doctorController.getDoctorById);
 
 module.exports = router;

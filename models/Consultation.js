@@ -77,6 +77,7 @@ const ConsultationSchema = new mongoose.Schema({
     fee: { type: Number, default: 0 },         // in Naira
     isPaid: { type: Boolean, default: false },
     paystackReference: { type: String, default: null },
+    flutterwaveReference: { type: String, default: null },
 
     // --- Channel ---
     channel: {
@@ -88,5 +89,8 @@ const ConsultationSchema = new mongoose.Schema({
     review: { type: reviewSchema, default: null }
 
 }, { timestamps: true });
+
+ConsultationSchema.index({ doctor: 1, status: 1, scheduledAt: 1 });
+ConsultationSchema.index({ patient: 1, scheduledAt: -1 });
 
 module.exports = mongoose.model('Consultation', ConsultationSchema);

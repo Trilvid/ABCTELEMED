@@ -1,12 +1,29 @@
+const mongoose = require('mongoose');
 const Consultation = require('../models/Consultation');
 const Doctor = require('../models/Doctor');
 const Patient = require('../models/Patient');
 const { endConsultation } = require('../services/consultationEndService');
 
+const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
+const clampLimit = (value, fallback = 10, max = 100) => {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed < 1) return fallback;
+    return Math.min(parsed, max);
+};
+
+const ensureDoctorOwnsResource = (req, doctorId) =>
+    req.doctor && req.doctor._id.toString() === doctorId.toString();
+
 // ─── POST /api/consultations ──────────────────────────────────────────────────
 exports.createConsultation = async (req, res, next) => {
     try {
         const { patientId, doctorId, scheduledAt, symptoms, channel } = req.body;
+        if (!isValidObjectId(patientId) || !isValidObjectId(doctorId)) {
+            return res.status(400).json({ status: 'error', message: 'Invalid patient or doctor identifier.' });
+        }
+        if (!scheduledAt || Number.isNaN(Date.parse(scheduledAt))) {
+            return res.status(400).json({ status: 'error', message: 'A valid consultation date is required.' });
+        }
 
         const [patient, doctor] = await Promise.all([
             Patient.findById(patientId),
@@ -72,16 +89,21 @@ exports.getConsultation = async (req, res, next) => {
 exports.getPatientConsultations = async (req, res, next) => {
     try {
         const { status, page = 1, limit = 10 } = req.query;
+        if (!isValidObjectId(req.params.patientId)) {
+            return res.status(400).json({ status: 'error', message: 'Invalid patient identifier.' });
+        }
         const filter = { patient: req.params.patientId };
         if (status) filter.status = status;
 
-        const skip = (Number(page) - 1) * Number(limit);
+        const safePage = clampLimit(page, 1, 1000000);
+        const safeLimit = clampLimit(limit, 10, 100);
+        const skip = (safePage - 1) * safeLimit;
         const [consultations, total] = await Promise.all([
             Consultation.find(filter)
                 .populate('doctor', 'firstName lastName specialty photo rating')
                 .sort({ scheduledAt: -1 })
                 .skip(skip)
-                .limit(Number(limit)),
+                .limit(safeLimit),
             Consultation.countDocuments(filter)
         ]);
 
@@ -89,8 +111,8 @@ exports.getPatientConsultations = async (req, res, next) => {
             status: 'success',
             results: consultations.length,
             total,
-            currentPage: Number(page),
-            totalPages: Math.ceil(total / Number(limit)),
+            currentPage: safePage,
+            totalPages: Math.ceil(total / safeLimit),
             data: { consultations }
         });
     } catch (err) {
@@ -102,16 +124,24 @@ exports.getPatientConsultations = async (req, res, next) => {
 exports.getDoctorConsultations = async (req, res, next) => {
     try {
         const { status, page = 1, limit = 10 } = req.query;
+        if (!isValidObjectId(req.params.doctorId)) {
+            return res.status(400).json({ status: 'error', message: 'Invalid doctor identifier.' });
+        }
+        if (!ensureDoctorOwnsResource(req, req.params.doctorId)) {
+            return res.status(403).json({ status: 'error', message: 'You can only view your own consultations.' });
+        }
         const filter = { doctor: req.params.doctorId };
         if (status) filter.status = status;
 
-        const skip = (Number(page) - 1) * Number(limit);
+        const safePage = clampLimit(page, 1, 1000000);
+        const safeLimit = clampLimit(limit, 10, 100);
+        const skip = (safePage - 1) * safeLimit;
         const [consultations, total] = await Promise.all([
             Consultation.find(filter)
                 .populate('patient', 'firstName lastName whatsappNumber dateOfBirth gender')
                 .sort({ scheduledAt: 1 })
                 .skip(skip)
-                .limit(Number(limit)),
+                .limit(safeLimit),
             Consultation.countDocuments(filter)
         ]);
 
@@ -119,8 +149,8 @@ exports.getDoctorConsultations = async (req, res, next) => {
             status: 'success',
             results: consultations.length,
             total,
-            currentPage: Number(page),
-            totalPages: Math.ceil(total / Number(limit)),
+            currentPage: safePage,
+            totalPages: Math.ceil(total / safeLimit),
             data: { consultations }
         });
     } catch (err) {
@@ -141,9 +171,12 @@ exports.updateConsultation = async (req, res, next) => {
         allowed.forEach(field => {
             if (req.body[field] !== undefined) update[field] = req.body[field];
         });
+        if (!Object.keys(update).length) {
+            return res.status(400).json({ status: 'error', message: 'No valid consultation fields were provided.' });
+        }
 
-        const consultation = await Consultation.findByIdAndUpdate(
-            req.params.id,
+        const consultation = await Consultation.findOneAndUpdate(
+            { _id: req.params.id, doctor: req.doctor._id },
             update,
             { returnDocument: 'after', runValidators: true }
         );
@@ -192,6 +225,9 @@ exports.cancelConsultation = async (req, res, next) => {
         const consultation = await Consultation.findById(req.params.id);
         if (!consultation)
             return res.status(404).json({ status: 'error', message: 'Consultation not found.' });
+        if (!ensureDoctorOwnsResource(req, consultation.doctor)) {
+            return res.status(403).json({ status: 'error', message: 'You can only cancel your own consultations.' });
+        }
 
         if (['completed', 'cancelled'].includes(consultation.status))
             return res.status(400).json({
@@ -200,11 +236,11 @@ exports.cancelConsultation = async (req, res, next) => {
             });
 
         consultation.status = 'cancelled';
-        consultation.cancelledBy = cancelledBy || 'system';
+        consultation.cancelledBy = cancelledBy || 'doctor';
         consultation.cancellationReason = cancellationReason || null;
         await consultation.save();
 
-        console.log(`Consultation ${req.params.id} cancelled by ${cancelledBy || 'system'}. Reason: ${cancellationReason || 'N/A'}`);
+        console.log(`Consultation ${req.params.id} cancelled by ${cancelledBy || 'doctor'}. Reason: ${cancellationReason || 'N/A'}`);
 
         res.status(200).json({
             status: 'success',
@@ -219,8 +255,15 @@ exports.cancelConsultation = async (req, res, next) => {
 exports.endConsultation = async (req, res) => {
     try {
         const { doctorNotes, diagnosis, prescriptions, followUpDate } = req.body;
+        const consultation = await Consultation.findById(req.params.id).select('doctor');
+        if (!consultation) {
+            return res.status(404).json({ success: false, message: 'Consultation not found' });
+        }
+        if (!ensureDoctorOwnsResource(req, consultation.doctor)) {
+            return res.status(403).json({ success: false, message: 'You can only end your own consultations.' });
+        }
 
-        const consultation = await endConsultation(req.params.id, {
+        const completedConsultation = await endConsultation(req.params.id, {
             doctorNotes,
             diagnosis,
             prescriptions,
@@ -230,11 +273,11 @@ exports.endConsultation = async (req, res) => {
         return res.status(200).json({
             success: true,
             message: 'Consultation ended. Patient has been sent a review prompt.',
-            data: consultation
+            data: completedConsultation
         });
 
     } catch (err) {
-        console.error('❌ End consultation error:', err.message);
+        console.error('End consultation error:', err.message);
         const statusCode = err.message === 'Consultation not found' ? 404
             : err.message === 'Consultation is already completed' ? 400
                 : 500;

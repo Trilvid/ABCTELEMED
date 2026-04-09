@@ -96,6 +96,10 @@ router.post('/webhook', async (req, res) => {
                     console.error('Paystack consultation webhook error: invalid metadata', metadata);
                     return res.sendStatus(200);
                 }
+                const existingConsultation = await Consultation.findOne({ paystackReference: event.data.reference }).select('_id');
+                if (existingConsultation) {
+                    return res.sendStatus(200);
+                }
 
                 const [patient, doctor] = await Promise.all([
                     Patient.findById(patientId).select('firstName lastName whatsappNumber'),
@@ -122,6 +126,21 @@ router.post('/webhook', async (req, res) => {
                     fee: doctor.consultationFee,
                     channel: 'whatsapp',
                     paystackReference: event.data.reference
+                });
+
+                const Earning = require('../models/Earning');
+                const gross = doctor.consultationFee;
+                const { commission, doctorAmount } = Earning.calculateSplit(gross);
+                await Earning.create({
+                    consultation: consultation._id,
+                    doctor: doctor._id,
+                    patient: patient._id,
+                    grossAmount: gross,
+                    commissionAmount: commission,
+                    doctorAmount,
+                    status: 'pending',
+                    paymentGateway: 'paystack',
+                    gatewayReference: event.data.reference,
                 });
 
                 // Mark doctor as busy
@@ -155,9 +174,9 @@ router.post('/webhook', async (req, res) => {
                             `Ref: ${consultation._id}\n\n` +
                             `Please contact the patient on WhatsApp to begin.`
                         );
-                        console.log(`✅ Doctor notified via Paystack webhook: ${doctorNumber}`);
+                        console.log(`Doctor notified via Paystack webhook: ${doctorNumber}`);
                     } catch (e) {
-                        console.error(`❌ Doctor notify failed: ${e.message}`);
+                        console.error(`Doctor notify failed: ${e.message}`);
                     }
                 }
 

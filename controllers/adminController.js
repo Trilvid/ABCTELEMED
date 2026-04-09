@@ -1,12 +1,22 @@
 // controllers/adminController.js
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 const Admin = require('../models/Admin');
 const Doctor = require('../models/Doctor');
 const Patient = require('../models/Patient');
 const Consultation = require('../models/Consultation');
 const Earning = require('../models/Earning');
 const AuditLog = require('../models/AuditLog');
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const clampLimit = (value, fallback = 20, max = 100) => {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed < 1) return fallback;
+    return Math.min(parsed, max);
+};
+const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const normalizeEmail = (value = '') => value.trim().toLowerCase();
 
 const signToken = (id, role) =>
     jwt.sign({ id, role }, process.env.JWT_SECRET, {
@@ -38,8 +48,11 @@ exports.login = async (req, res, next) => {
         const { email, password } = req.body;
         if (!email || !password)
             return res.status(400).json({ status: 'error', message: 'Email and password required.' });
+        if (!EMAIL_RE.test(normalizeEmail(email))) {
+            return res.status(400).json({ status: 'error', message: 'A valid email address is required.' });
+        }
 
-        const admin = await Admin.findOne({ email: email.toLowerCase().trim() }).select('+password');
+        const admin = await Admin.findOne({ email: normalizeEmail(email) }).select('+password');
         if (!admin || !(await admin.comparePassword(password)))
             return res.status(401).json({ status: 'error', message: 'Invalid email or password.' });
 
@@ -70,16 +83,25 @@ exports.login = async (req, res, next) => {
 exports.createAdmin = async (req, res, next) => {
     try {
         const { firstName, lastName, email, password, role, permissions } = req.body;
+        if (!firstName || !lastName || !email || !password) {
+            return res.status(400).json({ status: 'error', message: 'First name, last name, email, and password are required.' });
+        }
+        if (!EMAIL_RE.test(normalizeEmail(email))) {
+            return res.status(400).json({ status: 'error', message: 'A valid email address is required.' });
+        }
 
         if (role === 'superAdmin' && req.admin.role !== 'superAdmin')
             return res.status(403).json({ status: 'error', message: 'Only a superAdmin can create another superAdmin.' });
 
-        const existing = await Admin.findOne({ email: email?.toLowerCase().trim() });
+        const existing = await Admin.findOne({ email: normalizeEmail(email) });
         if (existing)
             return res.status(409).json({ status: 'error', message: 'An admin with this email already exists.' });
+        if (String(password).length < 8) {
+            return res.status(400).json({ status: 'error', message: 'Password must be at least 8 characters.' });
+        }
 
         const newAdmin = await Admin.create({
-            firstName, lastName, email, password,
+            firstName, lastName, email: normalizeEmail(email), password,
             role: role || 'admin',
             permissions: permissions || {},
             createdBy: req.admin._id,
@@ -162,15 +184,17 @@ exports.getDoctors = async (req, res, next) => {
         if (status) filter.status = status;
         if (specialty) filter.specialty = specialty;
         if (search) {
-            const rx = new RegExp(search, 'i');
+            const rx = new RegExp(escapeRegex(search), 'i');
             filter.$or = [{ firstName: rx }, { lastName: rx }, { email: rx }, { licenseNumber: rx }];
         }
-        const skip = (Number(page) - 1) * Number(limit);
+        const safePage = clampLimit(page, 1, 1000000);
+        const safeLimit = clampLimit(limit, 20, 100);
+        const skip = (safePage - 1) * safeLimit;
         const [doctors, total] = await Promise.all([
-            Doctor.find(filter).select('-password -passwordResetToken -passwordResetExpires').sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
+            Doctor.find(filter).select('-password -passwordResetToken -passwordResetExpires').sort({ createdAt: -1 }).skip(skip).limit(safeLimit),
             Doctor.countDocuments(filter),
         ]);
-        res.status(200).json({ status: 'success', total, currentPage: Number(page), totalPages: Math.ceil(total / Number(limit)), data: { doctors } });
+        res.status(200).json({ status: 'success', total, currentPage: safePage, totalPages: Math.ceil(total / safeLimit), data: { doctors } });
     } catch (err) { next(err); }
 };
 
@@ -199,6 +223,9 @@ exports.getDoctorDetail = async (req, res, next) => {
 exports.verifyDoctor = async (req, res, next) => {
     try {
         const { action, rejectionReason } = req.body;
+        if (!['approve', 'reject'].includes(action)) {
+            return res.status(400).json({ status: 'error', message: 'Action must be either approve or reject.' });
+        }
         const update = action === 'approve'
             ? { status: 'verified', licenseVerified: true, verifiedAt: new Date(), verifiedBy: req.admin._id, rejectionReason: null }
             : { status: 'rejected', licenseVerified: false, rejectionReason: rejectionReason || 'Not specified' };
@@ -249,12 +276,14 @@ exports.getPatients = async (req, res, next) => {
         const filter = {};
         if (plan) filter.plan = plan;
         if (search) {
-            const rx = new RegExp(search, 'i');
+            const rx = new RegExp(escapeRegex(search), 'i');
             filter.$or = [{ firstName: rx }, { lastName: rx }, { whatsappNumber: rx }];
         }
-        const skip = (Number(page) - 1) * Number(limit);
+        const safePage = clampLimit(page, 1, 1000000);
+        const safeLimit = clampLimit(limit, 20, 100);
+        const skip = (safePage - 1) * safeLimit;
         const [patients, total] = await Promise.all([
-            Patient.find(filter).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
+            Patient.find(filter).sort({ createdAt: -1 }).skip(skip).limit(safeLimit),
             Patient.countDocuments(filter),
         ]);
 
@@ -263,7 +292,7 @@ exports.getPatients = async (req, res, next) => {
             description: `Listed patients (page ${page}, filter: ${JSON.stringify({ search, plan })})`,
         });
 
-        res.status(200).json({ status: 'success', total, currentPage: Number(page), totalPages: Math.ceil(total / Number(limit)), data: { patients } });
+        res.status(200).json({ status: 'success', total, currentPage: safePage, totalPages: Math.ceil(total / safeLimit), data: { patients } });
     } catch (err) { next(err); }
 };
 
@@ -326,15 +355,17 @@ exports.getConsultations = async (req, res, next) => {
         if (status) filter.status = status;
         if (doctorId) filter.doctor = doctorId;
         if (patientId) filter.patient = patientId;
-        const skip = (Number(page) - 1) * Number(limit);
+        const safePage = clampLimit(page, 1, 1000000);
+        const safeLimit = clampLimit(limit, 20, 100);
+        const skip = (safePage - 1) * safeLimit;
         const [consultations, total] = await Promise.all([
             Consultation.find(filter)
                 .populate('patient', 'firstName lastName whatsappNumber')
                 .populate('doctor', 'firstName lastName specialty')
-                .sort({ scheduledAt: -1 }).skip(skip).limit(Number(limit)),
+                .sort({ scheduledAt: -1 }).skip(skip).limit(safeLimit),
             Consultation.countDocuments(filter),
         ]);
-        res.status(200).json({ status: 'success', total, currentPage: Number(page), totalPages: Math.ceil(total / Number(limit)), data: { consultations } });
+        res.status(200).json({ status: 'success', total, currentPage: safePage, totalPages: Math.ceil(total / safeLimit), data: { consultations } });
     } catch (err) { next(err); }
 };
 
@@ -367,20 +398,22 @@ exports.getEarnings = async (req, res, next) => {
         const filter = {};
         if (status) filter.status = status;
         if (doctorId) filter.doctor = doctorId;
-        const skip = (Number(page) - 1) * Number(limit);
+        const safePage = clampLimit(page, 1, 1000000);
+        const safeLimit = clampLimit(limit, 20, 100);
+        const skip = (safePage - 1) * safeLimit;
         const [earnings, total, summary] = await Promise.all([
             Earning.find(filter)
                 .populate('doctor', 'firstName lastName specialty email')
                 .populate('patient', 'firstName lastName whatsappNumber')
                 .populate('consultation', 'scheduledAt status')
-                .sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
+                .sort({ createdAt: -1 }).skip(skip).limit(safeLimit),
             Earning.countDocuments(filter),
             Earning.aggregate([
                 { $match: filter },
                 { $group: { _id: '$status', count: { $sum: 1 }, gross: { $sum: '$grossAmount' }, commission: { $sum: '$commissionAmount' }, doctorTotal: { $sum: '$doctorAmount' } } }
             ]),
         ]);
-        res.status(200).json({ status: 'success', total, currentPage: Number(page), totalPages: Math.ceil(total / Number(limit)), data: { earnings, summary } });
+        res.status(200).json({ status: 'success', total, currentPage: safePage, totalPages: Math.ceil(total / safeLimit), data: { earnings, summary } });
     } catch (err) { next(err); }
 };
 
@@ -388,11 +421,14 @@ exports.getEarnings = async (req, res, next) => {
 exports.getDoctorEarnings = async (req, res, next) => {
     try {
         const { doctorId } = req.params;
+        if (!mongoose.Types.ObjectId.isValid(doctorId)) {
+            return res.status(400).json({ status: 'error', message: 'Invalid doctor identifier.' });
+        }
         const [doctor, earnings, agg] = await Promise.all([
             Doctor.findById(doctorId).select('firstName lastName email specialty phone'),
             Earning.find({ doctor: doctorId }).populate('consultation', 'scheduledAt').sort({ createdAt: -1 }),
             Earning.aggregate([
-                { $match: { doctor: require('mongoose').Types.ObjectId(doctorId) } },
+                { $match: { doctor: new mongoose.Types.ObjectId(doctorId) } },
                 { $group: { _id: '$status', total: { $sum: '$doctorAmount' }, count: { $sum: 1 } } }
             ]),
         ]);
@@ -465,12 +501,14 @@ exports.getAuditLogs = async (req, res, next) => {
         if (entity) filter.entity = entity;
         if (performedByRole) filter.performedByRole = performedByRole;
 
-        const skip = (Number(page) - 1) * Number(limit);
+        const safePage = clampLimit(page, 1, 1000000);
+        const safeLimit = clampLimit(limit, 30, 100);
+        const skip = (safePage - 1) * safeLimit;
         const [logs, total] = await Promise.all([
-            AuditLog.find(filter).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
+            AuditLog.find(filter).sort({ createdAt: -1 }).skip(skip).limit(safeLimit),
             AuditLog.countDocuments(filter),
         ]);
-        res.status(200).json({ status: 'success', total, currentPage: Number(page), totalPages: Math.ceil(total / Number(limit)), data: { logs } });
+        res.status(200).json({ status: 'success', total, currentPage: safePage, totalPages: Math.ceil(total / safeLimit), data: { logs } });
     } catch (err) { next(err); }
 };
 

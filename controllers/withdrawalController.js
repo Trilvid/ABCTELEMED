@@ -3,6 +3,13 @@ const WithdrawalRequest = require('../models/WithdrawalRequest');
 const Earning = require('../models/Earning');
 const AuditLog = require('../models/AuditLog');
 
+const ACCOUNT_NUMBER_RE = /^\d{10}$/;
+const clampLimit = (value, fallback = 20, max = 100) => {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed < 1) return fallback;
+    return Math.min(parsed, max);
+};
+
 // POST /api/doctors/withdraw  — doctor requests withdrawal
 exports.requestWithdrawal = async (req, res, next) => {
     try {
@@ -11,6 +18,9 @@ exports.requestWithdrawal = async (req, res, next) => {
 
         if (!bankName || !accountNumber || !accountName)
             return res.status(400).json({ status: 'error', message: 'Bank name, account number and account name are required.' });
+        if (!ACCOUNT_NUMBER_RE.test(String(accountNumber).trim())) {
+            return res.status(400).json({ status: 'error', message: 'Account number must be a valid 10-digit value.' });
+        }
 
         // Find all pending earnings for this doctor
         const pendingEarnings = await Earning.find({ doctor: doctorId, status: 'pending' });
@@ -79,14 +89,16 @@ exports.adminGetWithdrawals = async (req, res, next) => {
         const { status, page = 1, limit = 20 } = req.query;
         const filter = {};
         if (status) filter.status = status;
-        const skip = (Number(page) - 1) * Number(limit);
+        const safePage = clampLimit(page, 1, 1000000);
+        const safeLimit = clampLimit(limit, 20, 100);
+        const skip = (safePage - 1) * safeLimit;
         const [withdrawals, total] = await Promise.all([
             WithdrawalRequest.find(filter)
                 .populate('doctor', 'firstName lastName email phone bankDetails')
-                .sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
+                .sort({ createdAt: -1 }).skip(skip).limit(safeLimit),
             WithdrawalRequest.countDocuments(filter),
         ]);
-        res.status(200).json({ status: 'success', total, totalPages: Math.ceil(total / Number(limit)), data: { withdrawals } });
+        res.status(200).json({ status: 'success', total, currentPage: safePage, totalPages: Math.ceil(total / safeLimit), data: { withdrawals } });
     } catch (err) { next(err); }
 };
 
@@ -94,6 +106,9 @@ exports.adminGetWithdrawals = async (req, res, next) => {
 exports.adminProcessWithdrawal = async (req, res, next) => {
     try {
         const { action, payoutReference, adminNote, rejectionReason } = req.body;
+        if (!['pay', 'reject'].includes(action)) {
+            return res.status(400).json({ status: 'error', message: 'Action must be either pay or reject.' });
+        }
         const withdrawal = await WithdrawalRequest.findById(req.params.id).populate('doctor', 'firstName lastName');
         if (!withdrawal) return res.status(404).json({ status: 'error', message: 'Withdrawal request not found.' });
         if (withdrawal.status === 'paid' || withdrawal.status === 'rejected')

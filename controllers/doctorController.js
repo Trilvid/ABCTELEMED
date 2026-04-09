@@ -3,6 +3,22 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { Resend } = require('resend');
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const allowedDoctorUpdateFields = [
+    'firstName', 'lastName', 'phone', 'whatsappNumber', 'photo',
+    'certificateUrl', 'licenseDocUrl', 'specialty', 'yearsOfExperience',
+    'bio', 'languages', 'qualifications', 'licenseExpiry',
+    'consultationFee', 'currency', 'consultationDuration', 'isOnCall',
+    'bankDetails'
+];
+const clampLimit = (value, fallback = 10, max = 100) => {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed < 1) return fallback;
+    return Math.min(parsed, max);
+};
+const normalizeEmail = (value = '') => value.trim().toLowerCase();
+const isOwnDoctorRecord = (req) => req.doctor && req.doctor._id.toString() === req.params.id;
+
 const signToken = (id) =>
     jwt.sign({ id, role: 'doctor' }, process.env.JWT_SECRET, {
         expiresIn: process.env.JWT_EXPIRES_IN || '7d'
@@ -16,22 +32,37 @@ exports.register = async (req, res, next) => {
             firstName, lastName, email, phone, password,
             specialty, licenseNumber, licenseExpiry,
             yearsOfExperience, qualifications, bio, availabilitySchedule,
-            languages, consultationFee, whatsappNumber
+            languages, consultationFee, whatsappNumber, photo, certificateUrl
         } = req.body;
+        const normalizedEmail = normalizeEmail(email);
 
-        const existing = await Doctor.findOne({ $or: [{ email }, { phone }, { licenseNumber }] });
+        if (!firstName || !lastName || !phone || !password || !specialty || !licenseNumber || !licenseExpiry) {
+            return res.status(400).json({ status: 'error', message: 'Missing required registration fields.' });
+        }
+        if (!EMAIL_RE.test(normalizedEmail)) {
+            return res.status(400).json({ status: 'error', message: 'A valid email address is required.' });
+        }
+
+        const existing = await Doctor.findOne({ $or: [{ email: normalizedEmail }, { phone }, { licenseNumber }] });
         if (existing) {
             return res.status(409).json({
                 status: 'error',
                 message: 'A doctor with this email, phone, or license number already exists.'
             });
         }
+        if (String(password).length < 6) {
+            return res.status(400).json({ status: 'error', message: 'Password must be at least 6 characters.' });
+        }
+        if (!Number.isFinite(Number(yearsOfExperience)) || Number(yearsOfExperience) < 0) {
+            return res.status(400).json({ status: 'error', message: 'Years of experience must be a valid non-negative number.' });
+        }
 
         const doctor = await Doctor.create({
-            firstName, lastName, email, phone, password,
+            firstName, lastName, email: normalizedEmail, phone, password,
             specialty, licenseNumber, licenseExpiry,
             yearsOfExperience, qualifications, bio,
-            languages, consultationFee, whatsappNumber, availabilitySchedule
+            languages, consultationFee, whatsappNumber, availabilitySchedule,
+            photo, certificateUrl
         });
 
         const token = signToken(doctor._id);
@@ -40,7 +71,7 @@ exports.register = async (req, res, next) => {
             status: 'success',
             message: 'Registration successful. Your account is pending verification.',
             token,
-            data: { doctor: doctor.toPublicProfile() }
+            data: { doctor: doctor.toPublicProfile({ includeSensitive: true }) }
         });
     } catch (err) {
         next(err);
@@ -53,8 +84,11 @@ exports.login = async (req, res, next) => {
         const { email, password } = req.body;
         if (!email || !password)
             return res.status(400).json({ status: 'error', message: 'Email and password are required.' });
+        if (!EMAIL_RE.test(normalizeEmail(email))) {
+            return res.status(400).json({ status: 'error', message: 'A valid email address is required.' });
+        }
 
-        const doctor = await Doctor.findOne({ email }).select('+password');
+        const doctor = await Doctor.findOne({ email: normalizeEmail(email) }).select('+password');
         if (!doctor || !(await doctor.comparePassword(password)))
             return res.status(401).json({ status: 'error', message: 'Invalid email or password.' });
 
@@ -65,14 +99,14 @@ exports.login = async (req, res, next) => {
             return res.status(403).json({ status: 'error', message: `Your account has been ${doctor.status}.` });
 
         doctor.lastLogin = new Date();
-        // await doctor.save({ validateBeforeSave: true });
+        await doctor.save({ validateBeforeSave: false });
 
         const token = signToken(doctor._id);
 
         res.status(200).json({
             status: 'success',
             token,
-            data: { doctor: doctor.toPublicProfile() }
+            data: { doctor: doctor.toPublicProfile({ includeSensitive: true }) }
         });
     } catch (err) {
         next(err);
@@ -90,13 +124,15 @@ exports.getAllDoctors = async (req, res, next) => {
         if (minRating) filter.rating = { $gte: Number(minRating) };
         if (maxFee) filter.consultationFee = { $lte: Number(maxFee) };
 
-        const skip = (Number(page) - 1) * Number(limit);
+        const safePage = clampLimit(page, 1, 1000000);
+        const safeLimit = clampLimit(limit, 10, 100);
+        const skip = (safePage - 1) * safeLimit;
         const [doctors, total] = await Promise.all([
             Doctor.find(filter)
                 .select('-password -passwordResetToken -passwordResetExpires')
                 .sort({ rating: -1, totalConsultations: -1 })
                 .skip(skip)
-                .limit(Number(limit)),
+                .limit(safeLimit),
             Doctor.countDocuments(filter)
         ]);
 
@@ -104,8 +140,8 @@ exports.getAllDoctors = async (req, res, next) => {
             status: 'success',
             results: doctors.length,
             total,
-            currentPage: Number(page),
-            totalPages: Math.ceil(total / Number(limit)),
+            currentPage: safePage,
+            totalPages: Math.ceil(total / safeLimit),
             data: { doctors: doctors.map(d => d.toPublicProfile()) }
         });
     } catch (err) {
@@ -133,17 +169,27 @@ exports.getDoctorById = async (req, res, next) => {
 // Doctor updates their own profile (protected route)
 exports.updateProfile = async (req, res, next) => {
     try {
-        const forbidden = ['password', 'email', 'licenseNumber', 'status', 'rating'];
-        forbidden.forEach(f => delete req.body[f]);
+        if (!isOwnDoctorRecord(req)) {
+            return res.status(403).json({ status: 'error', message: 'You can only update your own profile.' });
+        }
+        const update = {};
+        allowedDoctorUpdateFields.forEach(field => {
+            if (req.body[field] !== undefined) {
+                update[field] = req.body[field];
+            }
+        });
+        if (!Object.keys(update).length) {
+            return res.status(400).json({ status: 'error', message: 'No valid profile fields were provided.' });
+        }
 
-        const doctor = await Doctor.findByIdAndUpdate(req.params.id, req.body, {
+        const doctor = await Doctor.findByIdAndUpdate(req.params.id, update, {
             returnDocument: 'after', runValidators: true
         });
         if (!doctor) return res.status(404).json({ status: 'error', message: 'Doctor not found.' });
 
         res.status(200).json({
             status: 'success',
-            data: { doctor: doctor.toPublicProfile() }
+            data: { doctor: doctor.toPublicProfile({ includeSensitive: true }) }
         });
     } catch (err) {
         next(err);
@@ -153,14 +199,20 @@ exports.updateProfile = async (req, res, next) => {
 // ─── PATCH /api/doctors/:id/availability ─────────────────────────────────────
 exports.updateAvailability = async (req, res, next) => {
     try {
+        if (!isOwnDoctorRecord(req)) {
+            return res.status(403).json({ status: 'error', message: 'You can only update your own availability.' });
+        }
         const { isAvailableNow, availabilitySchedule, consultationDuration } = req.body;
 
         const update = {};
         if (typeof isAvailableNow !== 'undefined') update.isAvailableNow = isAvailableNow;
         if (availabilitySchedule) update.availabilitySchedule = availabilitySchedule;
         if (consultationDuration) update.consultationDuration = consultationDuration;
+        if (!Object.keys(update).length) {
+            return res.status(400).json({ status: 'error', message: 'No valid availability fields were provided.' });
+        }
 
-        const doctor = await Doctor.findByIdAndUpdate(req.params.id, update, { returnDocument: 'after' });
+        const doctor = await Doctor.findByIdAndUpdate(req.params.id, update, { returnDocument: 'after', runValidators: true });
         if (!doctor) return res.status(404).json({ status: 'error', message: 'Doctor not found.' });
 
         res.status(200).json({
@@ -181,6 +233,9 @@ exports.updateAvailability = async (req, res, next) => {
 exports.verifyDoctor = async (req, res, next) => {
     try {
         const { action, rejectionReason } = req.body; // action: 'approve' | 'reject'
+        if (!['approve', 'reject'].includes(action)) {
+            return res.status(400).json({ status: 'error', message: 'Action must be either approve or reject.' });
+        }
 
         const update =
             action === 'approve'
@@ -205,9 +260,12 @@ exports.forgotPassword = async (req, res, next) => {
     try {
         const { email } = req.body;
         if (!email) return res.status(400).json({ status: 'error', message: 'Email is required.' });
+        if (!EMAIL_RE.test(normalizeEmail(email))) {
+            return res.status(400).json({ status: 'error', message: 'A valid email address is required.' });
+        }
 
         const Doctor = require('../models/Doctor');
-        const doctor = await Doctor.findOne({ email: email.toLowerCase().trim() });
+        const doctor = await Doctor.findOne({ email: normalizeEmail(email) });
 
         if (doctor) {
             const rawToken = crypto.randomBytes(32).toString('hex');

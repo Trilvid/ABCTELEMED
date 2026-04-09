@@ -58,6 +58,10 @@ router.post('/webhook', async (req, res) => {
                     console.error('Flutterwave consultation webhook error: invalid meta', meta);
                     return res.sendStatus(200);
                 }
+                const existingConsultation = await Consultation.findOne({ flutterwaveReference: event.data.tx_ref }).select('_id');
+                if (existingConsultation) {
+                    return res.sendStatus(200);
+                }
 
                 const [patient, doctor] = await Promise.all([
                     Patient.findById(patientId).select('firstName lastName whatsappNumber'),

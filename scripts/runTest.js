@@ -107,6 +107,9 @@ async function testDoctorAuth() {
     test('Doctor registration succeeds', r.status === 201, r.data.message);
     test('Registration returns token', !!r.data.token);
     test('Registration returns public profile', !!r.data.data?.doctor?.id);
+    test('Registration response includes phone in profile', !!r.data.data?.doctor?.phone || r.data.data?.doctor?.phone === '', 'phone field present');
+    test('Registration response includes email in profile', r.data.data?.doctor?.email === uniqueEmail);
+    test('Registration response includes pending status', r.data.data?.doctor?.status === 'pending');
 
     if (r.data.token) {
         doctorToken = r.data.token;
@@ -123,11 +126,8 @@ async function testDoctorAuth() {
 
     // ── Login ──────────────────────────────────────────────────────────────
     const rLogin = await req('POST', '/api/doctors/login', { email: uniqueEmail, password: 'password123' });
-    test('Login with correct credentials succeeds', rLogin.ok, rLogin.data.message);
-    test('Login returns a JWT token', !!rLogin.data.token);
-    test('Login response includes phone in profile', !!rLogin.data.data?.doctor?.phone || rLogin.data.data?.doctor?.phone === '', 'phone field present');
-    test('Login response includes email in profile', rLogin.data.data?.doctor?.email === uniqueEmail);
-    test('Login response includes status in profile', !!rLogin.data.data?.doctor?.status);
+    test('Pending doctor login is blocked until verification', rLogin.status === 403, rLogin.data.message);
+    test('Pending doctor login does not return a JWT token', !rLogin.data.token);
     if (rLogin.data.token) doctorToken = rLogin.data.token;
 
     // ── Login wrong password ───────────────────────────────────────────────
@@ -140,7 +140,7 @@ async function testDoctorAuth() {
 
     // ── Get doctor profile ─────────────────────────────────────────────────
     const rGet = await req('GET', `/api/doctors/${doctorId}`);
-    test('GET /api/doctors/:id returns public profile', rGet.ok);
+    test('GET /api/doctors/:id hides pending doctor profiles', rGet.status === 404);
     test('Public profile does NOT expose password', !rGet.data.data?.doctor?.password);
 }
 

@@ -70,7 +70,7 @@ const DoctorSchema = new mongoose.Schema({
     status: {
         type: String,
         enum: ['pending', 'verified', 'suspended', 'rejected'],
-        default: 'verified'        // ← keep your existing default
+        default: 'pending'
     },
     licenseVerified: { type: Boolean, default: false },
     verifiedAt: { type: Date, default: null },
@@ -95,10 +95,9 @@ DoctorSchema.virtual('fullName').get(function () {
 });
 
 // --- Pre-save: hash password ---
-DoctorSchema.pre('save', async function (next) {
-    if (!this.isModified('password')) return; // next();
+DoctorSchema.pre('save', async function () {
+    if (!this.isModified('password')) return;
     this.password = await bcrypt.hash(this.password, 12);
-    // next();
 });
 
 // --- Method: compare password ---
@@ -107,21 +106,14 @@ DoctorSchema.methods.comparePassword = async function (candidatePassword) {
 };
 
 // --- Method: safe public profile ---
-DoctorSchema.methods.toPublicProfile = function () {
-    return {
+DoctorSchema.methods.toPublicProfile = function ({ includeSensitive = false } = {}) {
+    const profile = {
         id: this._id,
         fullName: this.fullName,
         firstName: this.firstName,
         lastName: this.lastName,
-        email: this.email,
-        phone: this.phone,
-        whatsappNumber: this.whatsappNumber,
         photo: this.photo,
-        certificateUrl: this.certificateUrl,
         specialty: this.specialty,
-        qualifications: this.qualifications,
-        licenseNumber: this.licenseNumber,
-        licenseExpiry: this.licenseExpiry,
         yearsOfExperience: this.yearsOfExperience,
         bio: this.bio,
         languages: this.languages,
@@ -132,14 +124,26 @@ DoctorSchema.methods.toPublicProfile = function () {
         currency: this.currency,
         isAvailableNow: this.isAvailableNow,
         isOnCall: this.isOnCall,
-        activeConsultationId: this.activeConsultationId,
         availabilitySchedule: this.availabilitySchedule,
         consultationDuration: this.consultationDuration,
         status: this.status,
-        licenseVerified: this.licenseVerified,
-        bankDetails: this.bankDetails,
         createdAt: this.createdAt,
     };
+
+    if (includeSensitive) {
+        profile.email = this.email;
+        profile.phone = this.phone;
+        profile.whatsappNumber = this.whatsappNumber;
+        profile.certificateUrl = this.certificateUrl;
+        profile.qualifications = this.qualifications;
+        profile.licenseNumber = this.licenseNumber;
+        profile.licenseExpiry = this.licenseExpiry;
+        profile.activeConsultationId = this.activeConsultationId;
+        profile.licenseVerified = this.licenseVerified;
+        profile.bankDetails = this.bankDetails;
+    }
+
+    return profile;
 };
 
 module.exports = mongoose.model('Doctor', DoctorSchema);
