@@ -45,6 +45,12 @@ const WaSessionSchema = new mongoose.Schema({
 
             // Profile
             'VIEW_PROFILE',
+
+            // payment method selection flow
+            'PAYMENT_METHOD',
+            'USSD_BANK_SELECT',
+            'USSD_WAITING',
+            'BANK_TRANSFER_WAITING',
         ],
         default: 'WELCOME'
     },

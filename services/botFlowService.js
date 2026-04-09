@@ -7,10 +7,6 @@ const Doctor = require('../models/Doctor');
 const Consultation = require('../models/Consultation');
 const flutterwaveService = require('./flutterwaveService');
 
-const onboarding = require('./onboardingService');
-const { collectFirstName, collectLastName, collectDob, collectGender, collectState } = require('./onboardingService');
-const mainMenu = require('./mainMenuService');
-
 const getPlanBadge = (plan) => {
     if (plan?.startsWith('premium')) return 'Premium';
     if (plan?.startsWith('basic')) return 'Basic';
@@ -55,6 +51,11 @@ const STEPS = {
 
     REVIEW_DOCTOR: handleReviewDoctor,
     REVIEW_COMMENT: handleReviewComment,
+
+    PAYMENT_METHOD: handlePaymentMethod,
+    USSD_BANK_SELECT: handleUssdBankSelect,
+    USSD_WAITING: handleUssdWaiting,
+    BANK_TRANSFER_WAITING: handleBankTransferWaiting,
 
 };
 
@@ -522,71 +523,42 @@ async function handleBookingConfirm(from, text, session) {
         );
     }
 
-    let patientId = session.patientId;
-    if (!patientId) {
-        const p = await Patient.findOne({ whatsappNumber: from });
-        patientId = p?._id;
-    }
-
-    if (!patientId) {
-        await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
-        return whatsappService.sendText(from, `Could not find your profile. Please try again.`);
-    }
-
-    const [patient, doctor] = await Promise.all([
-        Patient.findById(patientId).select('firstName email'),
-        Doctor.findById(session.data.selectedDoctorId)
-            .select('firstName lastName specialty consultationFee')
-    ]);
+    // Resolve doctor info
+    const doctor = await Doctor.findById(session.data.selectedDoctorId)
+        .select('firstName lastName specialty consultationFee');
 
     if (!doctor) {
         await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
         return whatsappService.sendText(from, `Could not find that doctor. Please try again.`);
     }
 
-    try {
-        const { initiateConsultationPayment } = require('./flutterwaveService');
-        const safeEmail = patient.email || `patient${from}@abctelemedica.ng`;
+    // Move to payment method selection
+    await WaSession.updateOne({ phone: from }, { step: 'PAYMENT_METHOD' });
 
-        const paymentData = await initiateConsultationPayment({
-            email: safeEmail,
-            amount: doctor.consultationFee,
-            patientId: patientId,
-            doctorId: session.data.selectedDoctorId,
-            consultationRef: `${patientId}-${Date.now()}`,
-            phone: from
-        });
-
-        // FIX: save paymentLink + paymentInitiatedAt so the reminder message works
-        await WaSession.updateOne({ phone: from }, {
-            step: 'CONSULTATION_PAYMENT',
-            'data.paymentReference': paymentData.tx_ref,
-            'data.paymentLink': paymentData.link,       // ← was missing
-            'data.paymentInitiatedAt': new Date(),       // ← was missing
-            'data.consultationFee': doctor.consultationFee
-        });
-
-        return whatsappService.sendText(from,
-            `Almost done!\n\n` +
-            `Dr. ${doctor.firstName} ${doctor.lastName}\n` +
-            `Specialty: ${doctor.specialty.replace(/_/g, ' ')}\n` +
-            `Consultation fee: N${doctor.consultationFee.toLocaleString()}\n\n` +
-            `Tap the link below to pay securely:\n\n` +
-            `${paymentData.link}\n\n` +
-            `After payment your doctor will be notified immediately.\n` +
-            `Type *check* to confirm your payment.`
-        );
-    } catch (err) {
-        console.error('❌ Consultation payment init error:', err.message);
-        await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
-        return whatsappService.sendButtons(from,
-            `Could not generate payment link right now. Please try again.`,
-            [
-                { id: 'consult', title: 'Try again' },
-                { id: 'history', title: 'My history' }
-            ]
-        );
-    }
+    return whatsappService.sendList(from,
+        `*Dr. ${doctor.firstName} ${doctor.lastName}*\n` +
+        `Specialty: ${doctor.specialty.replace(/_/g, ' ')}\n` +
+        `Fee: ₦${doctor.consultationFee.toLocaleString()}\n\n` +
+        `How would you like to pay?`,
+        'Choose payment',
+        [
+            {
+                id: 'pay_ussd',
+                title: 'USSD',
+                description: 'Dial a code from your phone — no internet needed'
+            },
+            {
+                id: 'pay_transfer',
+                title: 'Bank Transfer',
+                description: 'Get an account number, transfer from your bank app'
+            },
+            {
+                id: 'pay_link',
+                title: 'Card / Other',
+                description: 'Pay with card, USSD, or bank via secure link'
+            }
+        ]
+    );
 }
 
 
@@ -870,34 +842,32 @@ async function handleViewHistory(from, text, session) {
 }
 
 async function handleConsultationPayment(from, text, session) {
-    const { initiateConsultationPayment, verifyByTxRef } = require('./flutterwaveService');
     const input = text?.toLowerCase().trim();
-    const LINK_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
-
+    const LINK_EXPIRY_MS = 30 * 60 * 1000;
     const initiatedAt = session.data?.paymentInitiatedAt;
     const isStale = initiatedAt && (Date.now() - new Date(initiatedAt).getTime()) > LINK_EXPIRY_MS;
 
-    // ── Retry: user asked or link is stale ───
+    if (input === 'cancel') {
+        await WaSession.updateOne({ phone: from }, { step: 'PAYMENT_METHOD' });
+        return handlePaymentMethod(from, '', session);
+    }
+
     if (input === 'retry' || isStale) {
         const doctorId = session.data?.selectedDoctorId;
         const consultationFee = session.data?.consultationFee;
         if (!doctorId || !consultationFee) {
             await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
-            return whatsappService.sendText(from, `Session expired. Please start again from the main menu.`);
+            return whatsappService.sendText(from, `Session expired. Please start again.`);
         }
         const patient = await Patient.findOne({ whatsappNumber: from });
-        if (!patient) {
-            await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
-            return whatsappService.sendText(from, `Could not find your profile. Type anything to return to the menu.`);
-        }
         try {
-            const safeEmail = patient.email || `patient${from}@abctelemedica.ng`;
+            const { initiateConsultationPayment } = require('./flutterwaveService');
             const paymentData = await initiateConsultationPayment({
-                email: safeEmail,
+                email: patient?.email,
                 amount: consultationFee,
-                patientId: patient._id,
+                patientId: patient?._id,
                 doctorId,
-                consultationRef: `${patient._id}-${Date.now()}`,
+                consultationRef: `${patient?._id}-${Date.now()}`,
                 phone: from
             });
             await WaSession.updateOne({ phone: from }, {
@@ -906,128 +876,24 @@ async function handleConsultationPayment(from, text, session) {
                 'data.paymentInitiatedAt': new Date()
             });
             return whatsappService.sendText(from,
-                `Here is a fresh payment link:\n\n` +
-                `Consultation fee: N${consultationFee.toLocaleString()}\n\n` +
-                `${paymentData.link}\n\n` +
-                `After payment, type *check* to confirm.\n` +
-                `If your link expires again, type *retry*.`
+                `Fresh link:\n\n${paymentData.link}\n\nType *check* after payment.`
             );
         } catch (err) {
-            console.error('Consultation retry error:', err.message);
-            return whatsappService.sendText(from, `Could not generate a new link right now. Please try again shortly.`);
+            return whatsappService.sendText(from, `Could not refresh link. Try *cancel* to pick another payment method.`);
         }
     }
 
-    // ── Not "check" — remind user ───
     if (input !== 'check') {
         const existingLink = session.data?.paymentLink;
         return whatsappService.sendText(from,
             `Waiting for payment.\n\n` +
-            (existingLink ? `Your payment link:\n${existingLink}\n\n` : '') +
-            `Once you have paid, type *check* to confirm.\n` +
-            `If your link expired, type *retry* to get a new one.`
+            (existingLink ? `Link: ${existingLink}\n\n` : '') +
+            `Type *check* to confirm after payment.\n` +
+            `Type *retry* for a new link.\nType *cancel* to pick a different payment method.`
         );
     }
 
-    // ── Verify payment directly via Flutterwave API ───
-    try {
-        const tx_ref = session.data?.paymentReference;
-        if (!tx_ref) {
-            await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
-            return handleMainMenu(from, '', session);
-        }
-
-        const transaction = await verifyByTxRef(tx_ref);
-
-        // FIX: Flutterwave list API returns 'success', webhook event uses 'successful'
-        const isPaid = transaction?.status === 'successful' || transaction?.status === 'success';
-
-        if (!isPaid) {
-            return whatsappService.sendText(from,
-                `Payment not confirmed yet.\n\nPlease complete the payment and type *check* again.\n\nIf your link expired, type *retry* to get a new one.`
-            );
-        }
-
-        // ── Payment confirmed — check if webhook already created consultation ──
-        // (in case webhook fires before patient types 'check')
-        const patient = await Patient.findOne({ whatsappNumber: from });
-        if (!patient) {
-            await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
-            return handleMainMenu(from, '', session);
-        }
-
-        const existing = await Consultation.findOne({
-            patient: patient._id,
-            paystackReference: tx_ref,   // we store tx_ref here via webhook
-            isPaid: true
-        });
-
-        if (!existing) {
-            // Webhook hasn't fired yet (or was never configured) — create it here
-            const doctorId = session.data?.selectedDoctorId;
-            const doctor = await Doctor.findById(doctorId)
-                .select('firstName lastName specialty consultationFee whatsappNumber phone');
-
-            if (doctor) {
-                const consultation = await Consultation.create({
-                    patient: patient._id,
-                    doctor: doctor._id,
-                    scheduledAt: new Date(Date.now() + 30 * 60 * 1000),
-                    symptoms: session.data?.symptoms || [],
-                    aiSummary: session.data?.aiSummary || null,
-                    urgency: session.data?.urgency || null,
-                    status: 'confirmed',
-                    isPaid: true,
-                    fee: doctor.consultationFee,
-                    channel: 'whatsapp',
-                    paystackReference: tx_ref // store tx_ref for idempotency
-                });
-
-                // Mark doctor as busy
-                await Doctor.findByIdAndUpdate(doctor._id, {
-                    isAvailableNow: false,
-                    activeConsultationId: consultation._id
-                });
-
-                // Notify doctor on WhatsApp
-                const doctorNumber = (doctor.whatsappNumber || doctor.phone || '').replace(/[\s\-\+]/g, '');
-                if (doctorNumber) {
-                    try {
-                        await whatsappService.sendText(doctorNumber,
-                            `New Paid Consultation\n\n` +
-                            `Patient: ${patient.firstName} ${patient.lastName || ''}\n` +
-                            `WhatsApp: +${patient.whatsappNumber}\n` +
-                            `Specialty: ${doctor.specialty.replace(/_/g, ' ')}\n` +
-                            `Symptoms: ${(session.data?.symptoms || []).join(', ') || 'N/A'}\n` +
-                            `Urgency: ${session.data?.urgency || 'N/A'}\n` +
-                            `Fee paid: N${doctor.consultationFee.toLocaleString()}\n` +
-                            `Ref: ${consultation._id}\n\n` +
-                            `Please contact the patient on WhatsApp to begin.`
-                        );
-                        console.log(`✅ Doctor notified: ${doctorNumber}`);
-                    } catch (e) {
-                        console.error(`❌ Doctor notify failed: ${e.message}`);
-                    }
-                }
-            }
-        }
-
-        await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
-        return whatsappService.sendButtons(from,
-            `✅ Payment confirmed! Your doctor has been notified.\n\nThey will contact you on WhatsApp shortly.\n\nIf you do not hear from the doctor within 5 minutes, please contact support.`,
-            [
-                { id: 'history', title: 'My history' },
-                { id: 'consult', title: 'New consultation' },
-                { id: 'subscribe', title: 'My plan' }
-            ]
-        );
-
-    } catch (err) {
-        console.error('❌ handleConsultationPayment error:', err.message);
-        return whatsappService.sendText(from,
-            `Could not verify payment. Please try again in a moment or contact support.`
-        );
-    }
+    return await _verifyAndFinalize(from, session);
 }
 
 
@@ -1171,3 +1037,383 @@ async function saveReview(from, session, comment) {
     }
 }
 
+
+// ─── CHANGE 4: handlePaymentMethod ───────────────────────────────────────────
+// Routes patient to the chosen payment flow.
+
+async function handlePaymentMethod(from, text, session) {
+    const choice = text?.toLowerCase().trim();
+
+    let patientId = session.patientId;
+    if (!patientId) {
+        const p = await Patient.findOne({ whatsappNumber: from });
+        patientId = p?._id;
+    }
+    if (!patientId) {
+        await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
+        return whatsappService.sendText(from, `Could not find your profile. Please try again.`);
+    }
+
+    const [patient, doctor] = await Promise.all([
+        Patient.findById(patientId).select('firstName lastName email'),
+        Doctor.findById(session.data.selectedDoctorId).select('firstName lastName specialty consultationFee')
+    ]);
+
+    if (!doctor) {
+        await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
+        return whatsappService.sendText(from, `That doctor is no longer available. Please try again.`);
+    }
+
+    // ── Card / Standard link ──────────────────────────────────────────────────
+    if (choice === 'pay_link') {
+        try {
+            const { initiateConsultationPayment } = require('./flutterwaveService');
+            const safeEmail = patient.email || `patient${from}@abctelemedica.ng`;
+            const paymentData = await initiateConsultationPayment({
+                email: safeEmail,
+                amount: doctor.consultationFee,
+                patientId,
+                doctorId: session.data.selectedDoctorId,
+                consultationRef: `${patientId}-${Date.now()}`,
+                phone: from
+            });
+            await WaSession.updateOne({ phone: from }, {
+                step: 'CONSULTATION_PAYMENT',
+                'data.paymentReference': paymentData.tx_ref,
+                'data.paymentLink': paymentData.link,
+                'data.paymentInitiatedAt': new Date(),
+                'data.consultationFee': doctor.consultationFee
+            });
+            return whatsappService.sendText(from,
+                `💳 *Secure payment link*\n\n` +
+                `Dr. ${doctor.firstName} ${doctor.lastName}\n` +
+                `Fee: ₦${doctor.consultationFee.toLocaleString()}\n\n` +
+                `${paymentData.link}\n\n` +
+                `Tap the link, complete payment, then type *check* here to confirm.\n` +
+                `Link expired? Type *retry*.`
+            );
+        } catch (err) {
+            console.error('Payment link error:', err.message);
+            return whatsappService.sendText(from, `Could not generate payment link. Please try USSD or Bank Transfer instead.`);
+        }
+    }
+
+    // ── Bank Transfer ─────────────────────────────────────────────────────────
+    if (choice === 'pay_transfer') {
+        try {
+            const { initiateBankTransferPayment } = require('./flutterwaveService');
+            const safeEmail = patient.email || `patient${from}@abctelemedica.ng`;
+            const transferData = await initiateBankTransferPayment({
+                email: safeEmail,
+                amount: doctor.consultationFee,
+                patientId,
+                doctorId: session.data.selectedDoctorId,
+                consultationRef: `${patientId}-${Date.now()}`,
+                phone: from,
+                fullname: `${patient.firstName || ''} ${patient.lastName || ''}`.trim()
+            });
+
+            await WaSession.updateOne({ phone: from }, {
+                step: 'BANK_TRANSFER_WAITING',
+                'data.paymentReference': transferData.tx_ref,
+                'data.paymentInitiatedAt': new Date(),
+                'data.consultationFee': doctor.consultationFee,
+                'data.bankAccountNumber': transferData.accountNumber,
+                'data.bankName': transferData.bankName,
+                'data.bankAccountName': transferData.accountName,
+            });
+
+            return whatsappService.sendText(from,
+                `🏦 *Bank Transfer Details*\n\n` +
+                `Bank: *${transferData.bankName}*\n` +
+                `Account: *${transferData.accountNumber}*\n` +
+                `Account Name: *${transferData.accountName}*\n` +
+                `Amount: *₦${doctor.consultationFee.toLocaleString()}*\n\n` +
+                `Transfer this exact amount from your mobile banking app.\n\n` +
+                `Once sent, type *check* and we will confirm automatically.\n\n` +
+                `_Note: Use the exact amount — any difference may delay confirmation._`
+            );
+        } catch (err) {
+            console.error('Bank transfer error:', err.message);
+            return whatsappService.sendText(from,
+                `Could not create a transfer account right now. Please use USSD or the payment link instead.\n\nType *ussd* for USSD or *link* for a payment link.`
+            );
+        }
+    }
+
+    // ── USSD — ask for bank ───────────────────────────────────────────────────
+    if (choice === 'pay_ussd') {
+        await WaSession.updateOne({ phone: from }, {
+            step: 'USSD_BANK_SELECT',
+            'data.consultationFee': doctor.consultationFee
+        });
+
+        const { NIGERIAN_BANKS } = require('./flutterwaveService');
+        const bankRows = Object.entries(NIGERIAN_BANKS).slice(0, 10).map(([code, bank]) => ({
+            id: `bank_${code}`,
+            title: bank.name,
+            description: `Pay via USSD`
+        }));
+
+        return whatsappService.sendList(from,
+            `📱 *USSD Payment*\n\nSelect your bank to get a code to dial:`,
+            'Select bank',
+            bankRows
+        );
+    }
+
+    // Unknown choice — re-prompt
+    return whatsappService.sendList(from,
+        `Please choose your payment method:`,
+        'Choose payment',
+        [
+            { id: 'pay_ussd', title: 'USSD', description: 'Dial a code — no internet needed' },
+            { id: 'pay_transfer', title: 'Bank Transfer', description: 'Get an account number to transfer to' },
+            { id: 'pay_link', title: 'Card / Other', description: 'Pay via secure link' },
+        ]
+    );
+}
+
+
+// ─── CHANGE 5: handleUssdBankSelect ──────────────────────────────────────────
+// Patient selected their bank — initiate USSD charge and show the dial code.
+
+async function handleUssdBankSelect(from, text, session) {
+    const { NIGERIAN_BANKS, initiateUssdPayment } = require('./flutterwaveService');
+
+    const input = text?.toLowerCase().trim();
+    // Expect format: bank_044, bank_058, etc.
+    if (!input.startsWith('bank_')) {
+        const bankRows = Object.entries(NIGERIAN_BANKS).slice(0, 10).map(([code, bank]) => ({
+            id: `bank_${code}`,
+            title: bank.name,
+            description: `Pay via USSD`
+        }));
+        return whatsappService.sendList(from, `Please select your bank:`, 'Select bank', bankRows);
+    }
+
+    const bankCode = input.replace('bank_', '');
+    const bankInfo = NIGERIAN_BANKS[bankCode];
+    if (!bankInfo) {
+        return whatsappService.sendText(from, `Bank not found. Please try again.`);
+    }
+
+    let patientId = session.patientId;
+    if (!patientId) {
+        const p = await Patient.findOne({ whatsappNumber: from });
+        patientId = p?._id;
+    }
+
+    const [patient, doctor] = await Promise.all([
+        Patient.findById(patientId).select('firstName lastName email'),
+        Doctor.findById(session.data.selectedDoctorId).select('firstName lastName specialty consultationFee')
+    ]);
+
+    if (!doctor) {
+        await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
+        return whatsappService.sendText(from, `Doctor no longer available. Please start again.`);
+    }
+
+    try {
+        const ussdData = await initiateUssdPayment({
+            email: patient?.email,
+            amount: doctor.consultationFee,
+            patientId,
+            doctorId: session.data.selectedDoctorId,
+            consultationRef: `${patientId}-${Date.now()}`,
+            phone: from,
+            bankCode,
+            fullname: `${patient?.firstName || ''} ${patient?.lastName || ''}`.trim()
+        });
+
+        await WaSession.updateOne({ phone: from }, {
+            step: 'USSD_WAITING',
+            'data.paymentReference': ussdData.tx_ref,
+            'data.paymentInitiatedAt': new Date(),
+            'data.consultationFee': doctor.consultationFee,
+            'data.ussdCode': ussdData.ussdString,
+            'data.ussdBank': bankInfo.name,
+        });
+
+        return whatsappService.sendText(from,
+            `📱 *Dial this USSD code to pay*\n\n` +
+            `${ussdData.ussdString || 'Code generation in progress...'}\n\n` +
+            `Bank: *${bankInfo.name}*\n` +
+            `Amount: *₦${doctor.consultationFee.toLocaleString()}*\n\n` +
+            `*Steps:*\n` +
+            `1. Exit WhatsApp\n` +
+            `2. Dial the code above\n` +
+            `3. Follow the prompts on your phone\n` +
+            `4. Come back here and type *check*\n\n` +
+            `${ussdData.instruction ? `_${ussdData.instruction}_\n\n` : ''}` +
+            `Type *cancel* to choose a different payment method.`
+        );
+    } catch (err) {
+        console.error('USSD bank select error:', err.message);
+        // Fallback: offer other methods
+        await WaSession.updateOne({ phone: from }, { step: 'PAYMENT_METHOD' });
+        return whatsappService.sendList(from,
+            `Could not initiate USSD for ${bankInfo.name}. Please choose another method:`,
+            'Choose payment',
+            [
+                { id: 'pay_transfer', title: 'Bank Transfer', description: 'Get an account number' },
+                { id: 'pay_link', title: 'Card / Other', description: 'Pay via secure link' },
+            ]
+        );
+    }
+}
+
+
+// ─── CHANGE 6: handleUssdWaiting ─────────────────────────────────────────────
+// Patient has dialled the USSD code — waiting for them to type "check".
+
+async function handleUssdWaiting(from, text, session) {
+    const input = text?.toLowerCase().trim();
+
+    if (input === 'cancel') {
+        await WaSession.updateOne({ phone: from }, { step: 'PAYMENT_METHOD' });
+        return handlePaymentMethod(from, '', session);
+    }
+
+    if (input !== 'check') {
+        const code = session.data?.ussdCode;
+        return whatsappService.sendText(from,
+            `Waiting for your USSD payment.\n\n` +
+            (code ? `Dial: *${code}*\n\n` : '') +
+            `Once done, type *check* to confirm.\n\nType *cancel* to choose a different payment method.`
+        );
+    }
+
+    return await _verifyAndFinalize(from, session);
+}
+
+
+// ─── CHANGE 7: handleBankTransferWaiting ─────────────────────────────────────
+
+async function handleBankTransferWaiting(from, text, session) {
+    const input = text?.toLowerCase().trim();
+
+    if (input === 'cancel') {
+        await WaSession.updateOne({ phone: from }, { step: 'PAYMENT_METHOD' });
+        return handlePaymentMethod(from, '', session);
+    }
+
+    if (input !== 'check') {
+        const { bankName, bankAccountNumber, bankAccountName, consultationFee } = session.data;
+        return whatsappService.sendText(from,
+            `Waiting for your bank transfer.\n\n` +
+            `Bank: *${bankName || '—'}*\n` +
+            `Account: *${bankAccountNumber || '—'}*\n` +
+            `Name: *${bankAccountName || '—'}*\n` +
+            `Amount: *₦${Number(consultationFee || 0).toLocaleString()}*\n\n` +
+            `Once transferred, type *check* to confirm.\n\nType *cancel* to choose a different method.`
+        );
+    }
+
+    return await _verifyAndFinalize(from, session);
+}
+
+async function _verifyAndFinalize(from, session) {
+    const { verifyPaymentFull } = require('./flutterwaveService');
+
+    try {
+        const tx_ref = session.data?.paymentReference;
+        if (!tx_ref) {
+            await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
+            return handleMainMenu(from, '', session);
+        }
+
+        const transaction = await verifyPaymentFull(tx_ref, session.data?.flw_transaction_id);
+        const isPaid = transaction?.status === 'successful' || transaction?.status === 'success';
+
+        if (!isPaid) {
+            // Give a clear message depending on payment method
+            const method = session.step === 'USSD_WAITING' ? 'USSD payment'
+                : session.step === 'BANK_TRANSFER_WAITING' ? 'bank transfer'
+                    : 'payment';
+            return whatsappService.sendText(from,
+                `Your ${method} has not been confirmed yet.\n\n` +
+                `Please complete the payment and type *check* again.\n\n` +
+                `_If you're sure you've paid, please wait 2–3 minutes and try again. Bank transfers can take a few minutes to reflect._\n\n` +
+                `Type *cancel* to choose a different method.`
+            );
+        }
+
+        // Payment confirmed — check for idempotency (webhook may have already created it)
+        const patient = await Patient.findOne({ whatsappNumber: from });
+        if (!patient) {
+            await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
+            return handleMainMenu(from, '', session);
+        }
+
+        const existing = await Consultation.findOne({
+            patient: patient._id,
+            paystackReference: tx_ref,
+            isPaid: true
+        });
+
+        if (!existing) {
+            const doctorId = session.data?.selectedDoctorId;
+            const doctor = await Doctor.findById(doctorId)
+                .select('firstName lastName specialty consultationFee whatsappNumber phone');
+
+            if (doctor) {
+                const consultation = await Consultation.create({
+                    patient: patient._id,
+                    doctor: doctor._id,
+                    scheduledAt: new Date(Date.now() + 30 * 60 * 1000),
+                    symptoms: session.data?.symptoms || [],
+                    aiSummary: session.data?.aiSummary || null,
+                    urgency: session.data?.urgency || null,
+                    status: 'confirmed',
+                    isPaid: true,
+                    fee: doctor.consultationFee,
+                    channel: 'whatsapp',
+                    paystackReference: tx_ref
+                });
+
+                await Doctor.findByIdAndUpdate(doctor._id, {
+                    isAvailableNow: false,
+                    activeConsultationId: consultation._id
+                });
+
+                // Notify doctor
+                const doctorNumber = (doctor.whatsappNumber || doctor.phone || '').replace(/[\s\-\+]/g, '');
+                if (doctorNumber) {
+                    try {
+                        await whatsappService.sendText(doctorNumber,
+                            `New Paid Consultation\n\n` +
+                            `Patient: ${patient.firstName} ${patient.lastName || ''}\n` +
+                            `WhatsApp: +${patient.whatsappNumber}\n` +
+                            `Specialty: ${doctor.specialty.replace(/_/g, ' ')}\n` +
+                            `Symptoms: ${(session.data?.symptoms || []).join(', ') || 'N/A'}\n` +
+                            `Urgency: ${session.data?.urgency || 'N/A'}\n` +
+                            `Fee paid: ₦${doctor.consultationFee.toLocaleString()}\n` +
+                            `Ref: ${consultation._id}\n\n` +
+                            `Please contact the patient on WhatsApp to begin.`
+                        );
+                        console.log(`✅ Doctor notified: ${doctorNumber}`);
+                    } catch (e) {
+                        console.error(`❌ Doctor notify failed: ${e.message}`);
+                    }
+                }
+            }
+        }
+
+        await WaSession.updateOne({ phone: from }, { step: 'MAIN_MENU', data: {} });
+        return whatsappService.sendButtons(from,
+            `✅ *Payment confirmed!*\n\nYour doctor has been notified and will contact you on WhatsApp shortly.\n\nIf you don't hear from them within 5 minutes, please contact support.`,
+            [
+                { id: 'history', title: 'My history' },
+                { id: 'consult', title: 'New consultation' },
+                { id: 'subscribe', title: 'My plan' }
+            ]
+        );
+
+    } catch (err) {
+        console.error('❌ _verifyAndFinalize error:', err.message);
+        return whatsappService.sendText(from,
+            `Could not verify your payment right now. Please try again in a moment or contact support.`
+        );
+    }
+}
