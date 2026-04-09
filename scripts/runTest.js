@@ -16,7 +16,7 @@
 
 require('dotenv').config({ path: '../.env' });
 
-const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:5000';
+const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3000';
 const TEST_EMAIL = 'trillztech34@gmail.com';  // ← use this to test reset password email
 
 let passed = 0;

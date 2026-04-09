@@ -96,9 +96,9 @@ DoctorSchema.virtual('fullName').get(function () {
 
 // --- Pre-save: hash password ---
 DoctorSchema.pre('save', async function (next) {
-    if (!this.isModified('password')) return next();
+    if (!this.isModified('password')) return; // next();
     this.password = await bcrypt.hash(this.password, 12);
-    next();
+    // next();
 });
 
 // --- Method: compare password ---

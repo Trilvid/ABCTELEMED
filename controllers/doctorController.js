@@ -222,7 +222,7 @@ exports.forgotPassword = async (req, res, next) => {
             // ── Send email via Resend ──
             try {
                 const resend = new Resend(process.env.RESEND_API_KEY);
-                await resend.emails.send({
+                const { data, error } = await resend.emails.send({
                     from: `ABC Telemedica <${process.env.FROM_EMAIL || 'noreply@abctelemedica.ng'}>`,
                     to: doctor.email,
                     subject: 'Reset your ABC Telemedica password',
@@ -246,9 +246,19 @@ exports.forgotPassword = async (req, res, next) => {
                         </div>
                     `,
                 });
-                console.log(`✅ Password reset email sent to ${doctor.email}`);
+                if (error) {
+                    console.error('Resend email error:', {
+                        message: error.message,
+                        name: error.name,
+                        statusCode: error.statusCode,
+                        email: doctor.email,
+                        from: process.env.FROM_EMAIL || 'noreply@abctelemedica.ng',
+                    });
+                } else {
+                    console.log(`Password reset email queued for ${doctor.email} (id: ${data?.id || 'unknown'})`);
+                }
             } catch (emailErr) {
-                console.error('❌ Resend email error:', emailErr.message);
+                console.error('Resend email exception:', emailErr.message);
                 // Don't fail the request — token is saved, user can try again
             }
         }
