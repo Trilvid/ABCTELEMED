@@ -9,8 +9,8 @@ async function seed() {
     const admin = await Admin.create({
         firstName: 'Super',
         lastName: 'Admin',
-        email: process.env.SUPER_ADMIN_EMAIL || 'superadmin@abctelemedica.ng',
-        password: process.env.SUPER_ADMIN_PASSWORD || 'ChangeMe123!',
+        email: process.env.SUPER_ADMIN_EMAIL,
+        password: process.env.SUPER_ADMIN_PASSWORD,
         role: 'superAdmin',
     });
     console.log('SuperAdmin created:', admin.email);

@@ -382,15 +382,31 @@ async function handleAskState(from, text, session) {
 async function handleMainMenu(from, text, session) {
     const choice = text?.toLowerCase().trim();
 
+    // if (choice === 'consult') {
+    //     const patient = await Patient.findOne({ whatsappNumber: from });
+
+    //     if (!patient?.hasActivePlan()) {
+    //         await WaSession.updateOne({ phone: from }, { step: 'SUBSCRIPTION_MENU' });
+    //         return handleSubscriptionMenu(from, '', session);
+    //     }
+
+    //     // Has active plan — proceed to symptom collection
+    //     await WaSession.updateOne({ phone: from }, { step: 'SYMPTOM_COLLECT', data: {} });
+    //     return whatsappService.sendText(from,
+    //         `*Start a Consultation*\n\nDescribe your symptoms in as much detail as you can.\n\nExample: I have a headache, slight fever and body aches since yesterday.`
+    //     );
+    // }
+
     if (choice === 'consult') {
         const patient = await Patient.findOne({ whatsappNumber: from });
+        const isTrialMode = process.env.TRIAL_MODE === 'true';
 
-        if (!patient?.hasActivePlan()) {
+        if (!isTrialMode && !patient?.hasActivePlan()) {
             await WaSession.updateOne({ phone: from }, { step: 'SUBSCRIPTION_MENU' });
             return handleSubscriptionMenu(from, '', session);
         }
 
-        // Has active plan — proceed to symptom collection
+        // Trial mode OR has active plan — proceed directly
         await WaSession.updateOne({ phone: from }, { step: 'SYMPTOM_COLLECT', data: {} });
         return whatsappService.sendText(from,
             `*Start a Consultation*\n\nDescribe your symptoms in as much detail as you can.\n\nExample: I have a headache, slight fever and body aches since yesterday.`
