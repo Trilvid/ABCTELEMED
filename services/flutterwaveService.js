@@ -187,7 +187,7 @@ const NIGERIAN_BANKS = {
 };
 
 const PLANS = {
-    basic_monthly: { name: 'Basic Monthly', amount: 750, label: 'N750/month', perks: 'Unlimited symptom checks and doctor referrals', billing: 'monthly' },
+    basic_monthly: { name: 'Basic Monthly', amount: 50, label: 'N50/month', perks: 'Unlimited symptom checks and doctor referrals', billing: 'monthly' },
     basic_annual: { name: 'Basic Annual', amount: 6000, label: 'N500/month billed annually', perks: 'Unlimited symptom checks and doctor referrals', billing: 'annual' },
     premium_monthly: { name: 'Premium Monthly', amount: 1500, label: 'N1,500/month', perks: 'Instant doctor assignment and priority queue', billing: 'monthly' },
     premium_annual: { name: 'Premium Annual', amount: 14400, label: 'N1,200/month billed annually', perks: 'Instant doctor assignment and priority queue', billing: 'annual' },
