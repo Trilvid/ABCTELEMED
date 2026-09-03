@@ -187,7 +187,7 @@ const NIGERIAN_BANKS = {
 };
 
 const PLANS = {
-    basic_monthly: { name: 'Basic Monthly', amount: 50, label: 'N50/month', perks: 'Unlimited symptom checks and doctor referrals', billing: 'monthly' },
+    basic_monthly: { name: 'Basic Monthly', amount: 100, label: 'N100/month', perks: 'Unlimited symptom checks and doctor referrals', billing: 'monthly' },
     basic_annual: { name: 'Basic Annual', amount: 6000, label: 'N500/month billed annually', perks: 'Unlimited symptom checks and doctor referrals', billing: 'annual' },
     premium_monthly: { name: 'Premium Monthly', amount: 1500, label: 'N1,500/month', perks: 'Instant doctor assignment and priority queue', billing: 'monthly' },
     premium_annual: { name: 'Premium Annual', amount: 14400, label: 'N1,200/month billed annually', perks: 'Instant doctor assignment and priority queue', billing: 'annual' },
@@ -341,6 +341,98 @@ exports.initiateBankTransferPayment = async ({ email, amount, patientId, doctorI
         };
     } catch (err) {
         console.error('Bank transfer initiation error:', err.response?.data || err.message);
+        throw new Error(err.response?.data?.message || 'Could not create virtual account');
+    }
+};
+
+/**
+ * USSD charge for a subscription plan (mirrors initiateUssdPayment, but for plans
+ * instead of a one-off consultation fee).
+ * Returns { tx_ref, flw_ref, payment_code, ussdString, instruction, bankName }
+ */
+exports.initiateSubscriptionUssdPayment = async ({ email, plan, patientId, phone, bankCode, fullname }) => {
+    const planData = PLANS[plan];
+    if (!planData) throw new Error(`Invalid plan: ${plan}`);
+    const bankInfo = NIGERIAN_BANKS[bankCode];
+    if (!bankInfo) throw new Error(`Unsupported bank code: ${bankCode}`);
+
+    const tx_ref = `sub_ussd_${patientId}_${Date.now()}`;
+
+    try {
+        const response = await axios.post(
+            `${BASE_URL}/charges?type=ussd`,
+            {
+                tx_ref,
+                account_bank: bankCode,
+                amount: planData.amount,
+                currency: 'NGN',
+                email: safeEmail(email, phone),
+                phone_number: phone,
+                fullname: fullname || 'Patient',
+            },
+            { headers: headers() }
+        );
+
+        const data = response.data.data;
+        const payment_code = data?.payment_code || data?.meta?.authorization?.transfer_reference;
+        const instruction = data?.meta?.authorization?.instruction || '';
+        const ussdString = payment_code ? bankInfo.ussd(payment_code) : null;
+
+        console.log(`💳 Subscription USSD initiated — bank: ${bankInfo.name} | tx_ref: ${tx_ref} | code: ${ussdString}`);
+
+        return {
+            tx_ref,
+            flw_ref: data?.flw_ref,
+            payment_code,
+            ussdString,
+            instruction,
+            bankName: bankInfo.name,
+            meta: { patientId: String(patientId), phone, plan, type: 'subscription' },
+        };
+    } catch (err) {
+        console.error('Subscription USSD initiation error:', err.response?.data || err.message);
+        throw new Error(err.response?.data?.message || 'Could not initiate USSD payment');
+    }
+};
+
+/**
+ * Temporary virtual account for a subscription plan (mirrors initiateBankTransferPayment).
+ * Returns { accountNumber, bankName, accountName, tx_ref, expiresAt }
+ */
+exports.initiateSubscriptionBankTransferPayment = async ({ email, plan, patientId, phone, fullname }) => {
+    const planData = PLANS[plan];
+    if (!planData) throw new Error(`Invalid plan: ${plan}`);
+
+    const tx_ref = `sub_transfer_${patientId}_${Date.now()}`;
+
+    try {
+        const response = await axios.post(
+            `${BASE_URL}/virtual-account-numbers`,
+            {
+                email: safeEmail(email, phone),
+                is_permanent: false,
+                tx_ref,
+                amount: planData.amount,
+                currency: 'NGN',
+                narration: `AbcTeleMed ${planData.name} — ${fullname || 'Patient'}`,
+            },
+            { headers: headers() }
+        );
+
+        const data = response.data.data;
+        console.log(`🏦 Subscription virtual account created — account: ${data?.account_number} | tx_ref: ${tx_ref}`);
+
+        return {
+            tx_ref,
+            accountNumber: data?.account_number,
+            bankName: data?.bank_name,
+            accountName: data?.account_name || 'ABC Telemedica',
+            amount: planData.amount,
+            expiresAt: data?.expiry_date || null,
+            meta: { patientId: String(patientId), phone, plan, type: 'subscription' },
+        };
+    } catch (err) {
+        console.error('Subscription bank transfer initiation error:', err.response?.data || err.message);
         throw new Error(err.response?.data?.message || 'Could not create virtual account');
     }
 };
