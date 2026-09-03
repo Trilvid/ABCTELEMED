@@ -21,6 +21,44 @@ const subscriptionRows = (plans) => ([
     { id: 'cancel', title: 'Back', description: 'Return to menu' }
 ]);
 
+// Strips conversational filler so "my name is Nkechi" → "Nkechi",
+// "i'm from Nigeria" → "Nigeria", "i live in Lagos" → "Lagos", etc.
+const FILLER_PATTERNS = [
+    /^(?:my\s+)?(?:first\s+|last\s+|full\s+)?name\s+is\s+/i,
+    /^i\s*'?m\s+(?:called\s+|from\s+|based\s+in\s+)?/i,
+    /^i\s+am\s+(?:called\s+|from\s+|based\s+in\s+)?/i,
+    /^(?:you\s+can\s+|u\s+can\s+)?call\s+me\s+/i,
+    /^this\s+is\s+/i,
+    /^it'?s\s+/i,
+    /^i\s+live\s+in\s+/i,
+    /^i'?m\s+in\s+/i,
+    /^(?:my\s+)?(?:country|state|region)\s+is\s+/i,
+    /^(?:i'?m\s+)?from\s+/i,
+    /^based\s+in\s+/i,
+];
+
+function extractAnswer(rawText) {
+    let text = (rawText || '').trim();
+    if (!text) return text;
+
+    // Repeatedly strip fillers in case of stacked phrases ("well, i'm from Lagos")
+    let changed = true;
+    while (changed) {
+        changed = false;
+        for (const pattern of FILLER_PATTERNS) {
+            const stripped = text.replace(pattern, '').trim();
+            if (stripped !== text && stripped.length > 0) {
+                text = stripped;
+                changed = true;
+            }
+        }
+    }
+
+    // Drop wrapping quotes and trailing punctuation
+    text = text.replace(/^["']+|["']+$/g, '').replace(/[.!?]+$/, '').trim();
+    return text;
+}
+
 
 
 const STEPS = {
@@ -106,7 +144,7 @@ async function handleWelcome(from, text, session) {
     // ── New user — start onboarding ───────────────────────────────────────────
     await WaSession.updateOne({ phone: from }, { step: 'ASK_FIRST_NAME' });
     return whatsappService.sendText(from,
-        `👋 Welcome to *ABC Telemedica*!\n\nGet quality healthcare advice and connect with verified doctors right here on WhatsApp.\n\nLet's set up your profile quickly.\n\n*What is your first name?*`
+        `👋 Welcome to *ABC Telemedica*!\n\nGet quality healthcare advice and connect with verified doctors right here on WhatsApp.\n\nLet's set up your profile quickly.\n\n*What is your first name?* \n_Example: John_`
     );
 }
 
@@ -280,7 +318,7 @@ async function handleDoctorMatch(from, text, session) {
 
 // Onboarding extensions
 async function handleAskFirstName(from, text, session) {
-    const firstName = text?.trim();
+    const firstName = extractAnswer(text);
     if (!firstName || firstName.length < 2)
         return whatsappService.sendText(from, `Please enter a valid first name.`);
 
@@ -289,7 +327,7 @@ async function handleAskFirstName(from, text, session) {
 }
 
 async function handleAskLastName(from, text, session) {
-    const lastName = text?.trim();
+    const lastName = extractAnswer(text);
     if (!lastName || lastName.length < 2)
         return whatsappService.sendText(from, `Please enter a valid last name.`);
 
@@ -335,7 +373,7 @@ async function handleAskGender(from, text, session) {
 }
 
 async function handleAskCountry(from, text, session) {
-    const country = text?.trim();
+    const country = extractAnswer(text);
     if (!country || country.length < 2)
         return whatsappService.sendText(from, `Please enter your country. _Example: Nigeria_`);
 
@@ -347,7 +385,7 @@ async function handleAskCountry(from, text, session) {
 
 
 async function handleAskState(from, text, session) {
-    const state = text?.trim();
+    const state = extractAnswer(text);
     if (!state || state.length < 2)
         return whatsappService.sendText(from, `Please enter your state. _Example: Lagos_`);
 

@@ -25,8 +25,11 @@ Analyse the symptoms and respond ONLY with a valid JSON object — no extra text
             ]
         });
 
+        // const raw = response.content[0].text.trim();
+        // const parsed = JSON.parse(raw);
         const raw = response.content[0].text.trim();
-        const parsed = JSON.parse(raw);
+        const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+        const parsed = JSON.parse(cleaned);
 
         // Validate required fields exist before returning
         const result = {
