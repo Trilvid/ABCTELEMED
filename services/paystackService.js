@@ -6,8 +6,8 @@ const BASE_URL = 'https://api.paystack.co';
 const PLANS = {
     basic_monthly: {
         name: 'Basic Monthly',
-        amount: 75000,
-        label: 'N750/month',
+        amount: 5000,
+        label: 'N50/month',
         perks: 'Unlimited symptom checks and doctor referrals',
         billing: 'monthly'
     },
