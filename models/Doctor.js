@@ -72,7 +72,7 @@ const DoctorSchema = new mongoose.Schema({
         enum: ['pending', 'verified', 'suspended', 'rejected'],
         default: 'pending'
     },
-    licenseVerified: { type: Boolean, default: false },
+    licenseVerified: { type: Boolean, default: true },
     verifiedAt: { type: Date, default: null },
     verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
     rejectionReason: { type: String, default: null },
