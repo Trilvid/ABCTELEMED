@@ -3,7 +3,7 @@
 // Platform takes COMMISSION_RATE % and the doctor keeps the rest.
 const mongoose = require('mongoose');
 
-const COMMISSION_RATE = 15; // percent
+const COMMISSION_RATE = 20; // percent
 
 const EarningSchema = new mongoose.Schema({
     // ── Parties ───────────────────────────────────────────────────────────────
